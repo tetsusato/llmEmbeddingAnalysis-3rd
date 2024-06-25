@@ -51,16 +51,22 @@ def euclidean_distance(vecs):
     return pl.DataFrame(np.linalg.norm(np.array(vec1) - np.array(vec2), axis=1),
                         ["distance"])
 
-def transform(algo, vec1, vec2):
+def transform(algo, vec1: pl.DataFrame, vec2: pl.DataFrame):
     """
        vec1, vec2をalgoのfit_transformに従ってそれぞれ次元削減した
        ベクトルを作る
     """
-    res1 = pl.DataFrame(algo.fit_transform(vec1.to_series()))
-    res2 = pl.DataFrame(algo.fit_transform(vec2.to_series()))
+    vec1 = vec1.to_numpy()
+    vec1 = np.apply_along_axis(lambda x: x[0], 1, vec1)
+    vec2 = vec2.to_numpy()
+    vec2 = np.apply_along_axis(lambda x: x[0], 1, vec2)
+    #res1 = pl.DataFrame(algo.fit_transform(vec1.to_series()))
+    #res2 = pl.DataFrame(algo.fit_transform(vec2.to_series()))
+    res1 = pl.DataFrame(algo.fit_transform(vec1))
+    res2 = pl.DataFrame(algo.fit_transform(vec2))
     return (res1, res2)
 
-def plot(algo, vec1, vec2):
+def plot(algo, vec1, vec2, label):
     #tsne = TSNE(n_components=2, perplexity=10, random_state=13)
     (res1, res2) = transform(algo, vec1, vec2)
     fig, ax = plt.subplots(1, 2, figsize=(12, 6))
