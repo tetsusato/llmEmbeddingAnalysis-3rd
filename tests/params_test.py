@@ -28,4 +28,4 @@ class TestParamsModule(unittest.TestCase):
         root = params.config["cache"]["root"]
         self.assertEqual(root, "defaultCache")
 
-    def test_insert(self):
+
