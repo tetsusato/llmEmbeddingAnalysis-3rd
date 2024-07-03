@@ -62,7 +62,8 @@ if __name__ == "__main__":
     print("ft=", ft)
     #model_path = "Qwen/Qwen2-7B"
     model_path = "Alibaba-NLP/gte-Qwen2-7B-instruct"
-    #tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True, token="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")
+    token = os.getenv("HUG_TOKEN")
+    #tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True, token=token)
     #model = AutoModelForCausalLM.from_pretrained(model_path, torch_dtype=torch.bfloat16, device_map="auto")
     model = SentenceTransformer(model_path, trust_remote_code=True)
     #model.to("cuda:0")
