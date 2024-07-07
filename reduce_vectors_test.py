@@ -69,7 +69,7 @@ class ReduceVectors():
                         embeddings: pl.dataframe,
                         sample_idx: list,
                         labels: list,
-                        gui = False):
+                        gui = False) -> list[np.ndarray]:
         """
         npvec1 = embeddings.to_numpy(structured = False)
 
@@ -195,36 +195,18 @@ class ReduceVectors():
             )
         return plsims
     def proc(self, vecs: pl.DataFrame, sample_idx: list) -> pl.DataFrame:
-        print("**** Normal ****")
-        #pv = PrepareVectors("finetuned")
-        # ↓これをgetVectorsとcreateRondomSentenceで入れ替える
-        #vecs = pv.getVectors(num_rows)
         vecs = vecs[sample_idx]
-        #print("vec=", vecs)
-        #vec1 = vecs.select("embedding1").to_numpy().reshape(self.num_rows)
         vec1 = vecs.select("embedding1")
-        pl.Config.set_tbl_cols(-1)
-        pl.Config.set_fmt_str_lengths(100)
-        #print("vec1.head(1)", vec1.head(1).to_numpy())
-
-        #vec2 = vecs.select("embedding2").to_numpy().reshape(num_rows)
         vec2 = vecs.select("embedding2")
+        #pl.Config.set_tbl_cols(-1)
+        #pl.Config.set_fmt_str_lengths(100)
+
+
         num_rows = vecs.select(pl.len()).item()
         labels = vecs.select("label").to_numpy().reshape(num_rows)
             
-        # FIT原稿用
-        #sample_idx = [6, 3, 1, 4, 0]
-        
         bdlist1 = self.embedding_to_pd(vec1, sample_idx=sample_idx, labels=labels)
         bdlist2 = self.embedding_to_pd(vec2, sample_idx=sample_idx, labels=labels)
-        #print("original bdlist1=", bdlist1)
-        # 全部numpy arrayなわけじゃなかった．．．
-        #bdlist1 = np.take(bdlist1, idx, axis=0)
-        #bdlist2 = np.take(bdlist2, idx, axis=0)
-        # サンプリングはembedding_to_pdの中でやるように変更
-        #bdlist1 = [bdlist1[i] for i in sample_idx]
-        #bdlist2 = [bdlist2[i] for i in sample_idx]
-        #labels = np.take(labels, sample_idx, axis=0)
         sample_num = len(bdlist1)
         ##### 描画を分離する2024/07/06 2:16
         ##fig = plt.figure(figsize=(11, 5))
@@ -233,14 +215,14 @@ class ReduceVectors():
 
         distance = []
         pdw = PersistenceDiagramWrapper()
-        for (i, (bd1, bd2)) in enumerate(zip(bdlist1, bdlist2)):
+        for (i, (bd1, bd2, label)) in enumerate(zip(bdlist1, bdlist2, labels)):
             #print("bd=", bd1.shape)
             pdobj1 = pdw.createPdObject(bd1)
             pdobj2 = pdw.createPdObject(bd2)
             dis = hc.distance.wasserstein(pdobj1, pdobj2)*1000
             #dis = hc.distance.bottleneck(pdobj1, pdobj2)*1000
             distance.append(dis)
-            label = labels[i]
+            #label = labels[i]
             ##ax = fig.add_subplot(2, sample_num, i+1)
             ##ax.set_title(f"{i}:{dis:.3f}({label:.2f})")
             ##ax.scatter(x=bd1[:, 0], y=bd1[:, 1])
@@ -258,40 +240,51 @@ class ReduceVectors():
                               pl.corr("label", column_name, method="spearman").alias("spearman"))
         #print(f"corr = {corr}")
         
-        return results, corr
-    def proc_tsne(self, vecs: pl.datatypes.List(pl.Float64), sample_idx, perplexity):
-        #pv = PrepareVectors("finetuned")
-        # ↓これをgetVectorsとcreateRondomSentenceで入れ替える
-        #vecs = pv.getVectors(num_rows) 
-        #print("vec=", vecs.head(7))
-        #vec1 = vecs.select("embedding1").to_numpy().reshape(self.num_rows)
-        vecs = vecs[sample_idx]
+        return results, corr, bdlist1, bdlist2
+    def proc_draw(self,
+                  pd1: list[np.ndarray],
+                  pd2: list[np.ndarray],
+                  labels: np.ndarray,
+                  distance: list[float],
+                  sample_idx: list) -> pl.DataFrame:
         pl.Config.set_tbl_cols(-1)
         pl.Config.set_fmt_str_lengths(100)
-        #print("vec1.head(1)", vec1.head(1).to_numpy())
 
-        #vec2 = vecs.select("embedding2").to_numpy().reshape(num_rows)
-        #
+
+        num_rows = vecs.select(pl.len()).item()
+        #labels = vecs.select("label").to_numpy().reshape(num_rows)
+            
+        bdlist2 = self.embedding_to_pd(vec2, sample_idx=sample_idx, labels=labels)
+        sample_num = len(bdlist1)
+        fig = plt.figure(figsize=(11, 5))
+        fig.subplots_adjust(hspace=0.6, wspace=0.4)
+        fig.suptitle(f"birth-death(delay={self.time_delay},stride={self.stride})")
+
+        pdw = PersistenceDiagramWrapper()
+        for (i, (bd1, bd2, label, dis)) in enumerate(zip(bdlist1, bdlist2, labels, distance)):
+            ax = fig.add_subplot(2, sample_num, i+1)
+            ax.set_title(f"{i}:{dis:.3f}({label:.2f})")
+            ax.scatter(x=bd1[:, 0], y=bd1[:, 1])
+            ax = fig.add_subplot(2, sample_num, i+1+sample_num)
+            x.set_title(f"{i}:{dis:.3f}({label:.2f})")
+            ax.scatter(x=bd2[:, 0], y=bd2[:, 1])
+        fig.show()
+
+    def proc_tsne(self, vecs: pl.datatypes.List(pl.Float64), sample_idx, perplexity):
+        vecs = vecs[sample_idx]
+        #pl.Config.set_tbl_cols(-1)
+        #pl.Config.set_fmt_str_lengths(100)
+
         # 入力されたベクトルの数．sample_idxの長さに等しい
         num_rows = vecs.select(pl.len()).item()
         labels = vecs.select("label").to_numpy().reshape(num_rows)
             
-        # limit(5)じゃなくてlimit(7)が正しい
-        #offset=7
-        """
-        vec1 = vecs.select("embedding1")
-        vec2 = vecs.select("embedding2")
-        vec = vec1.rename({"embedding1": "embedding"}).vstack(
-              vec2.rename({"embedding2": "embedding"}))
-        """
         # 入力は2カラムあるので，一つにまとめる
         vec = pl.concat([
             vecs["embedding1"],
             vecs["embedding2"]],
                         how="vertical").rename("embedding")
-        #print("vstacked vec=", vec)
-        # FIT原稿用
-        #sample_idx = [6, 3, 1, 4, 0, 6+offset, 3+offset, 1+offset, 4+offset, 0+offset]
+
         # TSNEで次元削減した結果のベクトルを得る
         tsnelist = self.embedding_to_tsne(vec,
                                           sample_idx=sample_idx,
@@ -300,27 +293,86 @@ class ReduceVectors():
         # 元々の2入力に対応した次元削減済みベクトルを得る
         tsnelist1 = tsnelist[0:len(sample_idx)]
         tsnelist2 = tsnelist[len(sample_idx):2*len(sample_idx)]
-        # sample_idxの処理はembedding_to_tsneの中でやるように変更
-        #tsnelist1 = np.take(tsnelist, sample_idx, axis=0)
-        #tsnelist2 = np.take(tsnelist, (np.array(sample_idx)+7).tolist(), axis=0)
+
         xmin = np.min(tsnelist[:, 0])
         xmax = np.max(tsnelist[:, 0])
         ymin = np.min(tsnelist[:, 1])
         ymax = np.max(tsnelist[:, 1])
 
-        #labels = np.take(labels, sample_idx, axis=0)
+        sample_num = len(tsnelist) # これも入力ベクトル数=sample_idxの長さのはず
+        #fig = plt.figure(figsize=(18, 5))
+        #fig.subplots_adjust(hspace=0.6, wspace=0.4)
+        #fig.suptitle(f"tsne: perplexity={perplexity}")
+        distance = []
+        for (i, (v1, v2)) in enumerate(zip(tsnelist1, tsnelist2)):
+            dis = np.linalg.norm(v1 - v2)
+            distance.append(dis)
+            """
+            label = labels[i]
+            # 上下に同じデータのembedding1とembedding2に対応した結果をプロット
+            ax = fig.add_subplot(2, sample_num, i+1)
+            ax.set_title(f"{i}:{dis:.3f}({label:.2f})")
+            #ax.set_title(f"{i}:{sim:.3f}({label:.2f})")
+            #ax.scatter(x=v1[:, 0], y=v1[:, 1])
+            ax.scatter(x=[v1[0]], y=[v1[1]])
+            ax.set_xlim([xmin, xmax])
+            ax.set_ylim([ymin, ymax])
+            ax = fig.add_subplot(2, sample_num, i+1+sample_num)
+            #ax.set_title(f"{i}:{dis:.3f}({label:.2f})")
+            #ax.set_title(f"{i}:{sim:.3f}({label:.2f})")
+            #ax.scatter(x=v2[:, 0], y=v2[:, 1])
+            ax.scatter(x=[v2[0]], y=[v2[1]])
+            ax.set_xlim([xmin, xmax])
+            ax.set_ylim([ymin, ymax])
+            """
+        #fig.show()
+        column_name = "dis"
+        distance = pl.DataFrame(
+                       distance,
+                       schema={
+                           column_name: pl.Float64
+                           }
+                   )
+        results = vecs.with_columns(
+                    pl.DataFrame(
+                        distance,
+                        schema={
+                           column_name: pl.Float64
+                           }
+                        )
+            )
+
+        #logger.info(f"results: {results}")
+        corr = results.select(pl.corr("label", column_name, method="pearson").alias("pearson"),
+                              pl.corr("label", column_name, method="spearman").alias("spearman"))
+        #print(f"corr = {corr}")
+        
+        return results, corr, tsnelist
+    #def draw_tsne(self, vecs: pl.datatypes.List(pl.Float64), sample_idx, perplexity):
+    def draw_tsne(self, tsne_vecs: np.ndarray, sample_idx):
+        vecs = vecs[sample_idx]
+        pl.Config.set_tbl_cols(-1)
+        pl.Config.set_fmt_str_lengths(100)
+
+        # 入力されたベクトルの数．sample_idxの長さに等しい
+        num_rows = vecs.select(pl.len()).item()
+        labels = vecs.select("label").to_numpy().reshape(num_rows)
+            
+        # 元々の2入力に対応した次元削減済みベクトルを得る
+        tsnelist1 = tsne_vecs[0:len(sample_idx)]
+        tsnelist2 = tsne_vecs[len(sample_idx):2*len(sample_idx)]
+
+        xmin = np.min(tsnelist[:, 0])
+        xmax = np.max(tsnelist[:, 0])
+        ymin = np.min(tsnelist[:, 1])
+        ymax = np.max(tsnelist[:, 1])
+
         sample_num = len(tsnelist) # これも入力ベクトル数=sample_idxの長さのはず
         fig = plt.figure(figsize=(18, 5))
         fig.subplots_adjust(hspace=0.6, wspace=0.4)
-        #fig.suptitle(f"birth-death(delay={self.time_delay},stride={self.stride})")
         fig.suptitle(f"tsne: perplexity={perplexity}")
         distance = []
         for (i, (v1, v2)) in enumerate(zip(tsnelist1, tsnelist2)):
-            #print("v1=", v1)
-            #dis = hc.distance.wasserstein(pdobj1, pdobj2)*1000
-            #dis = hc.distance.bottleneck(pdobj1, pdobj2)*1000
-            #sim = np.dot(v1, v2)/(np.sqrt(np.dot(v1, v1)*np.dot(v2, v2)))
-            #dis = 1.0 - sim
             dis = np.linalg.norm(v1 - v2)
             distance.append(dis)
             label = labels[i]
@@ -340,28 +392,6 @@ class ReduceVectors():
             ax.set_xlim([xmin, xmax])
             ax.set_ylim([ymin, ymax])
         fig.show()
-        column_name = "dis"
-        distance = pl.DataFrame(
-                       distance,
-                       schema={
-                           column_name: pl.Float64
-                           }
-                   )
-        results = vecs.with_columns(
-                    pl.DataFrame(
-                        distance,
-                        schema={
-                           column_name: pl.Float64
-                           }
-                        )
-            )
-
-        logger.info(f"results: {results}")
-        corr = results.select(pl.corr("label", column_name, method="pearson").alias("pearson"),
-                              pl.corr("label", column_name, method="spearman").alias("spearman"))
-        #print(f"corr = {corr}")
-        
-        return results, corr
 
 def objective_tda(trial: optuna.trial.Trial):
     results_df = pl.DataFrame(
@@ -379,7 +409,7 @@ def objective_tda(trial: optuna.trial.Trial):
     #pv = PrepareVectors("finetuned")
     pv = PrepareVectors("original")
     vec = pv.getVectors(num_rows)
-    results, corr = rv.proc(vec, sample_idx)
+    results, corr, pdlist1, pdlist2 = rv.proc(vec, sample_idx)
     pearson = corr.select("pearson").head().item()
     spearman = corr.select("spearman").head().item()
     #print(f"results_df={results_df}")
@@ -399,6 +429,39 @@ def objective_tda(trial: optuna.trial.Trial):
     
     return pearson, spearman
 
+def objective_tsne(trial: optuna.trial.Trial):
+    results_df = pl.DataFrame(
+            schema={
+                    "perplexity": pl.Int64,
+                    "pearson": pl.Float64,
+                    "spearman": pl.Float64
+                }
+        )
+    perplexity = trial.suggest_int("perplexity",
+                                   1,
+                                   8)
+    #for perplexity in [1, 2, 4, 8]: # should be less than sample=10
+    logger.info(f"perplexity={perplexity}")
+    rv = ReduceVectors(time_delay=1, stride=1)
+    pv = PrepareVectors("original")
+    vec = pv.getVectors(num_rows)
+    results, corr, tsne_vecs = rv.proc_tsne(vec, sample_idx, perplexity)
+    pearson = corr.select("pearson").head().item()
+    spearman = corr.select("spearman").head().item()
+    
+    """
+    results_df = results_df.vstack(pl.DataFrame({
+                               "perplexity": perplexity,
+                               "pearson": corr.select("pearson").head().item(),
+                               "spearman": corr.select("spearman").head().item()
+                               }
+        ))
+    print("結果発表!")
+    pearson_max_idx = results_df.select(pl.col("pearson").abs().arg_max()).head().item()
+    spearman_max_idx = results_df.select(pl.col("spearman").abs().arg_max()).head().item()
+    print(results_df[[pearson_max_idx, spearman_max_idx]])
+    """
+    return pearson, spearman    
 if __name__ == "__main__":
     mode = sys.argv[1]
     num_rows = 100 # number of embedding vectors
@@ -406,7 +469,8 @@ if __name__ == "__main__":
     # FIT原稿用
     sample_idx = [6, 3, 1, 4, 0]
     #"""
-    if mode == "TDA":
+    for mode in ["TDA", "TSNE"]:
+    #if mode == "TDA":
         """
         results_df = pl.DataFrame(
                 schema={
@@ -449,40 +513,58 @@ if __name__ == "__main__":
         study.optimize(objective_tda, n_trials=3)
         logger.debug(f"dataframe={study.trials_dataframe()}")
         trial_with_higher_score = study.trials_dataframe().sort_values(
-                                            ["values_0", "values_1"]).head(2)
+                                            ["values_0", "values_1"]).head(10)
         results = trial_with_higher_score[["values_0",
                                           "values_1",
                                           "params_stride",
                                            "params_time_delay"]]
         print("結果発表!")
         print(results)
-    elif mode == "TSNE":
+    #elif mode == "TSNE":
     #"""
-    #"""
-        results_df = pl.DataFrame(
-                schema={
-                        "perplexity": pl.Int64,
-                        "pearson": pl.Float64,
-                        "spearman": pl.Float64
-                    }
-            )
-        for perplexity in [1, 2, 4, 8]: # should be less than sample=10
-            logger.info(f"perplexity={perplexity}")
-            rv = ReduceVectors(time_delay=1, stride=1)
-            pv = PrepareVectors("original")
-            vec = pv.getVectors(num_rows)
-            results, corr = rv.proc_tsne(vec, sample_idx, perplexity)
-            results_df = results_df.vstack(pl.DataFrame({
-                                       "perplexity": perplexity,
-                                       "pearson": corr.select("pearson").head().item(),
-                                       "spearman": corr.select("spearman").head().item()
-                                       }
-                ))
+        """
+            results_df = pl.DataFrame(
+                    schema={
+                            "perplexity": pl.Int64,
+                            "pearson": pl.Float64,
+                            "spearman": pl.Float64
+                        }
+                )
+            for perplexity in [1, 2, 4, 8]: # should be less than sample=10
+                logger.info(f"perplexity={perplexity}")
+                rv = ReduceVectors(time_delay=1, stride=1)
+                pv = PrepareVectors("original")
+                vec = pv.getVectors(num_rows)
+                results, corr, tsne_vecs = rv.proc_tsne(vec, sample_idx, perplexity)
+                results_df = results_df.vstack(pl.DataFrame({
+                                           "perplexity": perplexity,
+                                           "pearson": corr.select("pearson").head().item(),
+                                           "spearman": corr.select("spearman").head().item()
+                                           }
+                    ))
+            print("結果発表!")
+            pearson_max_idx = results_df.select(pl.col("pearson").abs().arg_max()).head().item()
+            spearman_max_idx = results_df.select(pl.col("spearman").abs().arg_max()).head().item()
+            print(results_df[[pearson_max_idx, spearman_max_idx]])
+        """
+        study_name = "tsne"
+        storage_name = f"sqlite:///{study_name}.db"
+        study = optuna.create_study(
+            study_name=study_name,
+            storage=storage_name,
+            directions=["minimize", "minimize"],
+            load_if_exists=True)
+        study.optimize(objective_tsne, n_trials=3)
+        logger.debug(f"dataframe={study.trials_dataframe()}")
+        trial_with_higher_score = study.trials_dataframe().sort_values(
+                                            ["values_0", "values_1"]).head(10)
+        results = trial_with_higher_score[["values_0",
+                                          "values_1",
+                                          "params_perplexity",
+                                           ]]
         print("結果発表!")
-        pearson_max_idx = results_df.select(pl.col("pearson").abs().arg_max()).head().item()
-        spearman_max_idx = results_df.select(pl.col("spearman").abs().arg_max()).head().item()
-        print(results_df[[pearson_max_idx, spearman_max_idx]])
-    #"""
+        print(results)
+        
     # 単純にコサイン類似度のみ
     #sims = rv.pl_cosine_similarity(vec.select("embedding1")[sample_idx],
     #                               vec.select("embedding2")[sample_idx])
