@@ -13,6 +13,9 @@ from sklearn.manifold import TSNE
 from visualize_vectors import euclidean_distance, transform, plot
 import sys
 import optuna
+from dataclasses import dataclass
+from typing import Callable
+
 
 config.fileConfig("logging.conf", disable_existing_loggers = False)
 
@@ -21,8 +24,15 @@ logger = logging.getLogger(__name__)
 
 class ReduceVectors():
 
-    def __init__(self, time_delay, stride, emb_dim = None):
+    def __init__(self,
+                 time_delay,
+                 stride,
+                 reduce_func_index: int,
+                 emb_dim = None):
         logger.debug("__init__")
+        reduce_func_array = [self.reduce_vector_sampling,
+                             self.reduce_vector_takensembedding]
+        
         self.mode = None
         if emb_dim is None:
             self.emb_dim = 384 # dimension of the each embedding vector
@@ -30,6 +40,76 @@ class ReduceVectors():
             self.emb_dim = emb_dim
         self.time_delay = time_delay
         self.stride = stride
+        self.reduce_func: Callable[[pl.dataframe,
+                                        int, # n
+                                        int, # time_delay
+                                        int, # stride
+                                        int, # dimension
+                                        ],
+                                       np.ndarray] = reduce_func_array[reduce_func_index]
+    def reduce_vector_sampling(self,
+                               embeddings: pl.dataframe,
+                               n: int = 1,
+                               time_delay: int = None,
+                               stride: int = None,
+                               dimension: int = 3) -> np.ndarray:
+        """
+        args:
+            embeddings: pl.dataframe [サンプル数, 埋め込みベクトル(1次元)]
+            n: int サンプリングして作るベクトルの数
+            time_delay: int Not used in this method
+            stride: int Not used in this method
+        return:
+            np.ndarray: [サンプル数, n, dimension]
+        """
+        # polars [sample_num, self.emb_dim] to numpy
+        npvec = embeddings.to_numpy(structured = False)
+        print(npvec)
+        # [入力サンプル数, 埋め込みベクトルの次元]
+        npvec = np.apply_along_axis(lambda x: x[0], 1, npvec)
+        npveclist = np.empty([npvec.shape[0], n, dimension])
+        # iはnpvecのサンプルを巡る
+        for src, dst in zip(npvec, npveclist) : # [n, dimension]
+            for j in range(n): # [0, n-1]
+                #print("sample dst", dst[j])
+                #print("sample src", src)
+                # dst[j], src, sampledのサイズはすべて[dimension]
+                # sample[i]: [3], size=dimension
+                sampled = np.random.choice(src, size=dimension, replace=False)
+                #print("=>", sampled)
+                dst[j] = sampled
+
+        #print("retrun=", npveclist)
+        return npveclist
+    def reduce_vector_takensembedding(self,
+                                      embeddings: pl.dataframe,
+                                      n: int = None,
+                                      time_delay: int = 1,
+                                      stride: int = 1,
+                                     ) -> np.ndarray:
+        """
+        args:
+            embeddings: pl.dataframe [サンプル数, 埋め込みベクトル(1次元)]
+            n: int Not used in this method
+            time_delay: int
+            stride: int
+        return:
+            np.ndarray: [サンプル数, TakensEmbeddingの数, dimension=3]
+        """
+        #logger.info(f"embeddings={embeddings}")
+        from gtda.time_series import TakensEmbedding
+        #te = TakensEmbedding(time_delay=1, dimension=3, stride=1)
+        #te = TakensEmbedding(time_delay=self.time_delay, dimension=3, stride=self.stride)
+        te = TakensEmbedding(time_delay=time_delay, dimension=3, stride=stride)
+        # polars [sample_num, self.emb_dim] to numpy
+        npvec = embeddings.to_numpy(structured = False)
+        npvec = np.apply_along_axis(lambda x: x[0], 1, npvec)
+        #npvec = npvec[sample_idx]
+
+        #labels = labels[sample_idx]
+        fveclist = te.fit_transform(npvec)
+        #print("fvec by gitto=", fveclist)
+        return fveclist
     def sampling(self, embeddings: pl.dataframe) -> pl.dataframe:
         """
         args:
@@ -64,6 +144,7 @@ class ReduceVectors():
             fveclist = np.concatenate([fveclist, fvec[None, :, :]], axis=0)
         print("fveclist shape= ", fveclist.shape) # [self.num_rows, fvecrow, rdim]
         return fveclist
+
         
     def embedding_to_pd(self,
                         embeddings: pl.dataframe,
@@ -71,53 +152,28 @@ class ReduceVectors():
                         labels: list,
                         gui = False) -> list[np.ndarray]:
         """
-        npvec1 = embeddings.to_numpy(structured = False)
-
-        npvec1 = np.apply_along_axis(lambda x: x[0], 1, npvec1)
-        rdim = 3 # reduced dimension
-
-        fvecrow = self.emb_dim - rdim + 1 # あってる？
-        #fvecrow = 5 # for test
-        fveclist = np.empty([0, fvecrow, rdim]) # feature vector
-        print("empty fveclist", fveclist)
-        print("empty fveclist shape", fveclist.shape)
-        print("npvec1 shape", npvec1.shape)
-        print("npvec1 rows=", npvec1.shape[0])
-        sample_num = npvec1.shape[0]
-        sample_num = 7
-        for i in range(sample_num):
-            fvec = np.empty([0, rdim])
-            row = npvec1[i]
-            #print("row=", row)
-            for j in range(fvecrow):
-                rvec = row[j: j + rdim]
-                #print("reduced:", rvec)
-                fvec = np.vstack([fvec, rvec])
-                #print("fvec shape=", fvec.shape)
-            fveclist = np.concatenate([fveclist, fvec[None, :, :]], axis=0)
-        print("fveclist shape= ", fveclist.shape) # [self.num_rows, fvecrow, rdim]
+        args:
+            embeddings: pl.dataframe PD化対象の1次元ベクトル
+             元々，オリジナルの埋め込みベクトルを受け取って，次元削減することを
+             やっていたが，次元削減後のベクトルを受け取るよう変更
+             それに従って，[サンプル数, 埋め込みベクトル(1次元)]という入力が
+             [サンプル数, 次元削減後埋め込みベクトルの数, dimension=3]と変更
+             入力次元が変わった理由は，「高次元ベクトルを多数の低次元ベクトル
+             で表す」という思想のため
         """
-        #sample_num = embeddings.select(pl.len()).item()
-        #sample_num = 7 # for test -> sample_idx利用に変更
-        #sample_num = 1 # for more test
-        #fveclist = self.sampling(embeddings)
-        from gtda.time_series import TakensEmbedding
-        #te = TakensEmbedding(time_delay=1, dimension=3, stride=1)
-        te = TakensEmbedding(time_delay=self.time_delay, dimension=3, stride=self.stride)
-        # polars [sample_num, self.emb_dim] to numpy
-        npvec = embeddings.to_numpy(structured = False)
-        npvec = np.apply_along_axis(lambda x: x[0], 1, npvec)
-        #npvec = npvec[sample_idx]
-
-        #labels = labels[sample_idx]
-        fveclist = te.fit_transform(npvec)
-        #print("fvec by gitto=", fveclist)
-
+        """
+        fveclist = self.reduce_func(embeddings,
+                                    time_delay=self.time_delay,
+                                    stride=self.stride,
+                                    )
+        print("fvec by gitto=", fveclist.__class__)
+        """
+        
         birth_death_list = []
         pdlist = []
         #for i in range(fveclist.shape[0]):
         #for i in range(0, sample_num):
-        for (fvecs, label) in zip(fveclist, labels):
+        for (fvecs, label) in zip(embeddings, labels):
             #fig = go.Figure()
 
             #fvecs = fveclist[i]
@@ -204,9 +260,18 @@ class ReduceVectors():
 
         num_rows = vecs.select(pl.len()).item()
         labels = vecs.select("label").to_numpy().reshape(num_rows)
-            
-        bdlist1 = self.embedding_to_pd(vec1, sample_idx=sample_idx, labels=labels)
-        bdlist2 = self.embedding_to_pd(vec2, sample_idx=sample_idx, labels=labels)
+
+        #logger.info(f"input vec1={vec1}")
+        reduced_vec1 = self.reduce_func(vec1,
+                                        time_delay=self.time_delay,
+                                        stride=self.stride,
+                                        )
+        reduced_vec2 = self.reduce_func(vec2,
+                                        time_delay=self.time_delay,
+                                        stride=self.stride,
+                                        )
+        bdlist1 = self.embedding_to_pd(reduced_vec1, sample_idx=sample_idx, labels=labels)
+        bdlist2 = self.embedding_to_pd(reduced_vec2, sample_idx=sample_idx, labels=labels)
         sample_num = len(bdlist1)
         ##### 描画を分離する2024/07/06 2:16
         ##fig = plt.figure(figsize=(11, 5))
@@ -404,8 +469,16 @@ def objective_tda(trial: optuna.trial.Trial):
         )
     time_delay = trial.suggest_int("time_delay", 1, 16)
     stride = trial.suggest_int("stride", 1, 16)
+    number = trial.params
+    #reduce_func_index = trial.suggest_int("reduce_func_index", 0, 1)
+    reduce_func_index = 1 # indicates takens embedding for debug 
+    #reduce_func = reduce_vector_takensembedding
+
     logger.info(f"delay={time_delay}, stride={stride}")
-    rv = ReduceVectors(time_delay=time_delay, stride=stride)
+    # initの中でハイパーパラメータがインスタンス変数に入る
+    rv = ReduceVectors(time_delay=time_delay,
+                       stride=stride,
+                       reduce_func_index=reduce_func_index)
     #pv = PrepareVectors("finetuned")
     pv = PrepareVectors("original")
     vec = pv.getVectors(num_rows)
@@ -442,7 +515,10 @@ def objective_tsne(trial: optuna.trial.Trial):
                                    8)
     #for perplexity in [1, 2, 4, 8]: # should be less than sample=10
     logger.info(f"perplexity={perplexity}")
-    rv = ReduceVectors(time_delay=1, stride=1)
+    reduce_func_index = 1 # fixed for debug as takens embeddings
+    rv = ReduceVectors(time_delay=1,
+                       stride=1,
+                       reduce_func_index=reduce_func_index)
     pv = PrepareVectors("original")
     vec = pv.getVectors(num_rows)
     results, corr, tsne_vecs = rv.proc_tsne(vec, sample_idx, perplexity)
@@ -462,109 +538,57 @@ def objective_tsne(trial: optuna.trial.Trial):
     print(results_df[[pearson_max_idx, spearman_max_idx]])
     """
     return pearson, spearman    
+
+
 if __name__ == "__main__":
-    mode = sys.argv[1]
+    @dataclass(frozen=True)
+    class Mode:
+        name: str
+        proc: Callable[[optuna.trial.Trial], list[float]]
+        hyper_params: list[str]
+    mode_list = [
+        Mode("tda",
+             objective_tda,
+             ["values_0",
+              "values_1",
+              "params_stride",
+              "params_time_delay"
+              ]
+             ),
+        Mode("tsne",
+             objective_tsne,
+             ["values_0",
+              "values_1",
+              "params_perplexity"
+              ]
+             ),
+        
+       ]
+    #mode = sys.argv[1]
     num_rows = 100 # number of embedding vectors
     
     # FIT原稿用
     sample_idx = [6, 3, 1, 4, 0]
     #"""
-    for mode in ["TDA", "TSNE"]:
-    #if mode == "TDA":
-        """
-        results_df = pl.DataFrame(
-                schema={
-                        "time delay": pl.Int64,
-                        "stride": pl.Int64,                
-                        "pearson": pl.Float64,
-                        "spearman": pl.Float64
-                    }
-            )
-        time_delay = trial.suggest_int("time_delay", 1, 16)
-        stride = trial.suggest_int("stride", 1, 16)
-        for time_delay in [1, 2, 4, 8, 16]:
-            for stride in [1, 2, 4, 8, 16]:
-                logger.info(f"delay={time_delay}, stride={stride}")
-                rv = ReduceVectors(time_delay=time_delay, stride=stride)
-                #pv = PrepareVectors("finetuned")
-                pv = PrepareVectors("original")
-                vec = pv.getVectors(num_rows)
-                results, corr = rv.proc(vec, sample_idx)
-                print(f"results_df={results_df}")
-                results_df = results_df.vstack(pl.DataFrame({"time delay": time_delay,
-                                           "stride": stride,
-                                           "pearson": corr.select("pearson").head().item(),
-                                           "spearman": corr.select("spearman").head().item()
-                                           }
-                    ))
-                #print(f"results={results_df}")
-        print("結果発表!")
-        pearson_max_idx = results_df.select(pl.col("pearson").abs().arg_max()).head().item()
-        spearman_max_idx = results_df.select(pl.col("spearman").abs().arg_max()).head().item()
-        print(results_df[[pearson_max_idx, spearman_max_idx]])
-        """
-        study_name = "tda"
+    #for mode in ["TDA", "TSNE"]:
+    for mode in mode_list:
+        study_name = mode.name
         storage_name = f"sqlite:///{study_name}.db"
         study = optuna.create_study(
             study_name=study_name,
             storage=storage_name,
             directions=["minimize", "minimize"],
             load_if_exists=True)
-        study.optimize(objective_tda, n_trials=3)
+        study.optimize(mode.proc, n_trials=3)
         logger.debug(f"dataframe={study.trials_dataframe()}")
         trial_with_higher_score = study.trials_dataframe().sort_values(
                                             ["values_0", "values_1"]).head(10)
-        results = trial_with_higher_score[["values_0",
-                                          "values_1",
-                                          "params_stride",
-                                           "params_time_delay"]]
+        results = trial_with_higher_score[mode.hyper_params]
         print("結果発表!")
         print(results)
-    #elif mode == "TSNE":
-    #"""
-        """
-            results_df = pl.DataFrame(
-                    schema={
-                            "perplexity": pl.Int64,
-                            "pearson": pl.Float64,
-                            "spearman": pl.Float64
-                        }
-                )
-            for perplexity in [1, 2, 4, 8]: # should be less than sample=10
-                logger.info(f"perplexity={perplexity}")
-                rv = ReduceVectors(time_delay=1, stride=1)
-                pv = PrepareVectors("original")
-                vec = pv.getVectors(num_rows)
-                results, corr, tsne_vecs = rv.proc_tsne(vec, sample_idx, perplexity)
-                results_df = results_df.vstack(pl.DataFrame({
-                                           "perplexity": perplexity,
-                                           "pearson": corr.select("pearson").head().item(),
-                                           "spearman": corr.select("spearman").head().item()
-                                           }
-                    ))
-            print("結果発表!")
-            pearson_max_idx = results_df.select(pl.col("pearson").abs().arg_max()).head().item()
-            spearman_max_idx = results_df.select(pl.col("spearman").abs().arg_max()).head().item()
-            print(results_df[[pearson_max_idx, spearman_max_idx]])
-        """
-        study_name = "tsne"
-        storage_name = f"sqlite:///{study_name}.db"
-        study = optuna.create_study(
-            study_name=study_name,
-            storage=storage_name,
-            directions=["minimize", "minimize"],
-            load_if_exists=True)
-        study.optimize(objective_tsne, n_trials=3)
-        logger.debug(f"dataframe={study.trials_dataframe()}")
-        trial_with_higher_score = study.trials_dataframe().sort_values(
-                                            ["values_0", "values_1"]).head(10)
-        results = trial_with_higher_score[["values_0",
-                                          "values_1",
-                                          "params_perplexity",
-                                           ]]
-        print("結果発表!")
-        print(results)
-        
+        print("BEST!")
+        print(study.best_trials)
+
     # 単純にコサイン類似度のみ
     #sims = rv.pl_cosine_similarity(vec.select("embedding1")[sample_idx],
     #                               vec.select("embedding2")[sample_idx])
