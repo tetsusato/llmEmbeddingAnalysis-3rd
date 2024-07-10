@@ -64,7 +64,7 @@ class ReduceVectors():
         """
         # polars [sample_num, self.emb_dim] to numpy
         npvec = embeddings.to_numpy(structured = False)
-        print(npvec)
+        #print(npvec)
         # [入力サンプル数, 埋め込みベクトルの次元]
         npvec = np.apply_along_axis(lambda x: x[0], 1, npvec)
         npveclist = np.empty([npvec.shape[0], n, dimension])
@@ -173,6 +173,7 @@ class ReduceVectors():
         pdlist = []
         #for i in range(fveclist.shape[0]):
         #for i in range(0, sample_num):
+        #logger.info(f"embeddings={embeddings}")
         for (fvecs, label) in zip(embeddings, labels):
             #fig = go.Figure()
 
@@ -266,11 +267,13 @@ class ReduceVectors():
                                         time_delay=self.time_delay,
                                         stride=self.stride,
                                         )
+        #logger.info(f"reduced vec1={reduced_vec1}")
         reduced_vec2 = self.reduce_func(vec2,
                                         time_delay=self.time_delay,
                                         stride=self.stride,
                                         )
         bdlist1 = self.embedding_to_pd(reduced_vec1, sample_idx=sample_idx, labels=labels)
+        #logger.info(f"bdlist1={bdlist1}")
         bdlist2 = self.embedding_to_pd(reduced_vec2, sample_idx=sample_idx, labels=labels)
         sample_num = len(bdlist1)
         ##### 描画を分離する2024/07/06 2:16
@@ -459,22 +462,14 @@ class ReduceVectors():
         fig.show()
 
 def objective_tda(trial: optuna.trial.Trial):
-    results_df = pl.DataFrame(
-            schema={
-                    "time delay": pl.Int64,
-                    "stride": pl.Int64,                
-                    "pearson": pl.Float64,
-                    "spearman": pl.Float64
-                }
-        )
     time_delay = trial.suggest_int("time_delay", 1, 16)
     stride = trial.suggest_int("stride", 1, 16)
     number = trial.params
-    #reduce_func_index = trial.suggest_int("reduce_func_index", 0, 1)
-    reduce_func_index = 1 # indicates takens embedding for debug 
+    reduce_func_index = trial.suggest_int("reduce_func_index", 0, 1)
+    #reduce_func_index = 1 # indicates takens embedding for debug 
     #reduce_func = reduce_vector_takensembedding
 
-    logger.info(f"delay={time_delay}, stride={stride}")
+    logger.info(f"delay={time_delay}, stride={stride}, reduce_func_index={reduce_func_index}")
     # initの中でハイパーパラメータがインスタンス変数に入る
     rv = ReduceVectors(time_delay=time_delay,
                        stride=stride,
@@ -483,22 +478,11 @@ def objective_tda(trial: optuna.trial.Trial):
     pv = PrepareVectors("original")
     vec = pv.getVectors(num_rows)
     results, corr, pdlist1, pdlist2 = rv.proc(vec, sample_idx)
+    logger.info(f"results in objective_tda={results}")
+    logger.info(f"corr in objective_tda={corr}")
     pearson = corr.select("pearson").head().item()
     spearman = corr.select("spearman").head().item()
     #print(f"results_df={results_df}")
-    """
-    results_df = results_df.vstack(pl.DataFrame({"time delay": time_delay,
-                               "stride": stride,
-                               "pearson": corr.select("pearson").head().item(),
-                               "spearman": corr.select("spearman").head().item()
-                               }
-        ))
-    #print(f"results={results_df}")
-    print("結果発表!")
-    pearson_max_idx = results_df.select(pl.col("pearson").abs().arg_max()).head().item()
-    spearman_max_idx = results_df.select(pl.col("spearman").abs().arg_max()).head().item()
-    print(results_df[[pearson_max_idx, spearman_max_idx]])
-    """
     
     return pearson, spearman
 
@@ -513,9 +497,10 @@ def objective_tsne(trial: optuna.trial.Trial):
     perplexity = trial.suggest_int("perplexity",
                                    1,
                                    8)
+    reduce_func_index = trial.suggest_int("reduce_func_index", 0, 1)
     #for perplexity in [1, 2, 4, 8]: # should be less than sample=10
     logger.info(f"perplexity={perplexity}")
-    reduce_func_index = 1 # fixed for debug as takens embeddings
+    #reduce_func_index = 1 # fixed for debug as takens embeddings
     rv = ReduceVectors(time_delay=1,
                        stride=1,
                        reduce_func_index=reduce_func_index)
@@ -552,14 +537,16 @@ if __name__ == "__main__":
              ["values_0",
               "values_1",
               "params_stride",
-              "params_time_delay"
+              "params_time_delay",
+              "params_reduce_func_index"
               ]
              ),
         Mode("tsne",
              objective_tsne,
              ["values_0",
               "values_1",
-              "params_perplexity"
+              "params_perplexity",
+              "params_reduce_func_index"
               ]
              ),
         
@@ -572,6 +559,7 @@ if __name__ == "__main__":
     #"""
     #for mode in ["TDA", "TSNE"]:
     for mode in mode_list:
+        logger.info(f"########## mode={mode}")
         study_name = mode.name
         storage_name = f"sqlite:///{study_name}.db"
         study = optuna.create_study(
