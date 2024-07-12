@@ -3,7 +3,7 @@ from dataclasses import dataclass
 import polars as pl
 import numpy as np
 from logging import config
-from reduce_vectors_test import ReduceVectors
+from reduce_vectors_test import ReduceVectors, MultiVectorRepresentation
 import plotly.graph_objects as go
 
 import logging
@@ -16,11 +16,19 @@ class TestReduceVectors(unittest.TestCase):
     emb_dim = 384 # dimension of the each embedding vector
 
     def test_init(self):
-        rv = ReduceVectors()
+        mvr = MultiVectorRepresentation()
+        rv = ReduceVectors(time_delay=1,
+                           stride=1,
+                           reduce_func=getattr(mvr, "reduce_vector_takensembedding"),
+                           emb_dim = 4)
         #self.assertEqual(self.cache.__class__.__name__, "Cache")
 
     def test_sampling(self):
-        rv = ReduceVectors(emb_dim = 4)
+        mvr = MultiVectorRepresentation()
+        rv = ReduceVectors(time_delay=1,
+                           stride=1,
+                           reduce_func=getattr(mvr, "reduce_vector_takensembedding"),
+                           emb_dim = 4)
 
         # 単純なsliding windowのテスト
         emb = pl.DataFrame({
@@ -149,7 +157,11 @@ class TestReduceVectors(unittest.TestCase):
         np.testing.assert_array_equal(new_emb, shouldbe)
         #print(new_emb)
     def test_cossim(self):
-        rv = ReduceVectors(emb_dim = 4)
+        mvr = MultiVectorRepresentation()        
+        rv = ReduceVectors(time_delay=1,
+                           stride=1,
+                           emb_dim = 4,
+                           reduce_func=getattr(mvr, "reduce_vector_takensembedding"))
         emb1 = pl.DataFrame({
                 "embedding": [[1.0, 2.0, 3.0, 4.0],
                               [1.1, 2.1, 3.1, 4.1]]
@@ -171,7 +183,11 @@ class TestReduceVectors(unittest.TestCase):
         np.testing.assert_array_almost_equal(sims.to_numpy(), shouldbe)
 
     def test_proc(self):
-        rv = ReduceVectors(emb_dim = 4)
+        mvr = MultiVectorRepresentation()        
+        rv = ReduceVectors(time_delay=1,
+                           stride=1,
+                           emb_dim = 4,
+                           reduce_func=getattr(mvr, "reduce_vector_takensembedding"))
         emb = pl.DataFrame({
                 "embedding1": [[1.0, 2.0, 3.0, 4.0],
                               [1.1, 2.1, 3.1, 4.1]],
@@ -181,10 +197,20 @@ class TestReduceVectors(unittest.TestCase):
             }
             )
         
-        rv.proc(emb)
+        results, corr, bd1, bd2 = rv.proc(emb,
+                                    [0, 1])
+        print(results)
+        print(corr)
+        print(bd1)
+        print(bd2)
 
-    def test_embedding_to_pd(self):
-        rv = ReduceVectors(emb_dim = 4)
+    def test_reduce_vector_sampling(self):
+        np.random.seed(123)
+        mvr = MultiVectorRepresentation()        
+        rv = ReduceVectors(emb_dim = 4,
+                           time_delay=1,
+                           stride=1,
+                           reduce_func=getattr(mvr, "reduce_vector_sampling"))
         emb = pl.DataFrame({
                 "embedding1": [[1.0, 2.0, 3.0, 4.0],
                               [1.1, 2.1, 3.1, 4.1]],
@@ -193,12 +219,85 @@ class TestReduceVectors(unittest.TestCase):
                 "label": [2.3, 2.4]
             }
             )
+        num_rows = emb.select(pl.len()).item()
+        vec = emb.select("embedding1")
+        print("vec=", vec)
+        labels = emb["label"].to_numpy().reshape(num_rows)
+        #reduced_vec = rv.reduce_func(vec,
+        #                             n=2,
+        #                             )
+        reduced_vec = mvr.reduce_vector_sampling(vec,
+                                                 n=2,
+                                                 )
+        np.testing.assert_array_equal(reduced_vec,
+                                     [[[4.,  1.,  2. ],
+                                       [2.,  4.,  1. ]],
+
+                                      [[1.1, 4.1, 2.1],
+                                       [4.1, 1.1, 2.1]]]
+
+                    )
+    def test_reduce_vector_takensembedding(self):
+        mvr = MultiVectorRepresentation()        
+        rv = ReduceVectors(emb_dim = 4,
+                           time_delay=1,
+                           stride=1,
+                           reduce_func=getattr(mvr, "reduce_vector_takensembedding"))
+        emb = pl.DataFrame({
+                "embedding1": [[1.0, 2.0, 3.0, 4.0],
+                              [1.1, 2.1, 3.1, 4.1]],
+                "embedding2": [[1.0, 2.0, 1.0, 2.0],
+                               [1.1, 2.1, 1.1, 2.1]],
+                "label": [2.3, 2.4]
+            }
+            )
+        num_rows = emb.select(pl.len()).item()
+        vec = emb.select("embedding1")
+        print("vec=", vec)
+        labels = emb["label"].to_numpy().reshape(num_rows)
+        #reduced_vec = rv.reduce_vector_takensembedding(vec)
+        reduced_vec = mvr.reduce_vector_takensembedding(vec)
+        np.testing.assert_array_equal(reduced_vec,
+                    [[[1.,  2.,  3. ],
+                      [2.,  3.,  4., ]],
+                    [[1.1, 2.1, 3.1],
+                     [2.1, 3.1, 4.1]]],
+
+                    )
         
-        pd = rv.embedding_to_pd(emb)
+    def test_embedding_to_pd(self):
+        mvr = MultiVectorRepresentation()
+        rv = ReduceVectors(time_delay=1,
+                           stride=1,
+                           reduce_func=getattr(mvr, "reduce_vector_takensembedding"),
+                           emb_dim = 4)
+        emb = pl.DataFrame({
+                "embedding1": [[1.0, 2.0, 3.0, 4.0],
+                              [1.1, 2.1, 3.1, 4.1]],
+                "embedding2": [[1.0, 2.0, 1.0, 2.0],
+                               [1.1, 2.1, 1.1, 2.1]],
+                "label": [2.3, 2.4]
+            }
+            )
+        num_rows = emb.select(pl.len()).item()
+        vec = emb.select("embedding1")
+        print("vec=", vec)
+        labels = emb["label"].to_numpy().reshape(num_rows)
+        # 高次元ベクトルを多数の低次元ベクトルに変換
+        reduced_vec = rv.reduce_func(vec,
+                                        time_delay=rv.time_delay,
+                                        stride=rv.stride,
+                                        )
+
+        pd = rv.embedding_to_pd(reduced_vec, sample_idx=[0], labels=labels)
         print("pd", pd)
     def test_embedding_to_tsne(self):
-        rv = ReduceVectors(emb_dim = 4)
-        emb = pl.DataFrame({
+        mvr = MultiVectorRepresentation()
+        rv = ReduceVectors(time_delay=1,
+                           stride=1,
+                           reduce_func=getattr(mvr, "reduce_vector_takensembedding"),
+                           emb_dim = 4)
+        vecs = pl.DataFrame({
                 "embedding1": [[1.0, 2.0, 3.0, 4.0],
                               [1.1, 2.1, 3.1, 4.1]],
                 "embedding2": [[1.0, 2.0, 1.0, 2.0],
@@ -206,7 +305,14 @@ class TestReduceVectors(unittest.TestCase):
                 "label": [2.3, 2.4]
             }
             )
-        
-        tsne = rv.embedding_to_tsne(emb)
+        vec = pl.concat([
+            vecs["embedding1"],
+            vecs["embedding2"]],
+                        how="vertical").rename("embedding")
+
+        print("vec=", vec)
+        tsne = rv.embedding_to_tsne(vec,
+                                    sample_idx=[0, 1, 2, 3],
+                                    perplexity=1.0)
         print("tsne", tsne)
         

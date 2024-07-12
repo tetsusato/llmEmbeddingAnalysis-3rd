@@ -21,32 +21,7 @@ config.fileConfig("logging.conf", disable_existing_loggers = False)
 
 logger = logging.getLogger(__name__)
 
-
-class ReduceVectors():
-
-    def __init__(self,
-                 time_delay,
-                 stride,
-                 reduce_func_index: int,
-                 emb_dim = None):
-        logger.debug("__init__")
-        reduce_func_array = [self.reduce_vector_sampling,
-                             self.reduce_vector_takensembedding]
-        
-        self.mode = None
-        if emb_dim is None:
-            self.emb_dim = 384 # dimension of the each embedding vector
-        else:
-            self.emb_dim = emb_dim
-        self.time_delay = time_delay
-        self.stride = stride
-        self.reduce_func: Callable[[pl.dataframe,
-                                        int, # n
-                                        int, # time_delay
-                                        int, # stride
-                                        int, # dimension
-                                        ],
-                                       np.ndarray] = reduce_func_array[reduce_func_index]
+class MultiVectorRepresentation:
     def reduce_vector_sampling(self,
                                embeddings: pl.dataframe,
                                n: int = 1,
@@ -110,6 +85,41 @@ class ReduceVectors():
         fveclist = te.fit_transform(npvec)
         #print("fvec by gitto=", fveclist)
         return fveclist
+
+class ReduceVectors():
+
+    def __init__(self,
+                 time_delay,
+                 stride,
+#                 reduce_func_index: int,
+                 reduce_func: Callable[[pl.dataframe,
+                                        int, # n
+                                        int, # time_delay
+                                        int, # stride
+                                        int, # dimension
+                                       ],
+                                       np.ndarray
+                                       ],
+                 emb_dim = None):
+        logger.debug("__init__")
+        #reduce_func_array = [self.reduce_vector_sampling,
+        #                     self.reduce_vector_takensembedding]
+        
+        self.mode = None
+        if emb_dim is None:
+            self.emb_dim = 384 # dimension of the each embedding vector
+        else:
+            self.emb_dim = emb_dim
+        self.time_delay = time_delay
+        self.stride = stride
+        self.reduce_func: Callable[[pl.dataframe,
+                                        int, # n
+                                        int, # time_delay
+                                        int, # stride
+                                        int, # dimension
+                                        ],
+#                                       np.ndarray] = reduce_func_array[reduce_func_index]
+                                       np.ndarray] = reduce_func
     def sampling(self, embeddings: pl.dataframe) -> pl.dataframe:
         """
         args:
@@ -462,18 +472,25 @@ class ReduceVectors():
         fig.show()
 
 def objective_tda(trial: optuna.trial.Trial):
+
+    # ハイパーパラメータの準備
     time_delay = trial.suggest_int("time_delay", 1, 16)
     stride = trial.suggest_int("stride", 1, 16)
     number = trial.params
-    reduce_func_index = trial.suggest_int("reduce_func_index", 0, 1)
-    #reduce_func_index = 1 # indicates takens embedding for debug 
-    #reduce_func = reduce_vector_takensembedding
+    #reduce_func_index = trial.suggest_int("reduce_func_index", 0, 1)
+    reduce_func = trial.suggest_categorical("reduce_func",
+                                    ["reduce_vector_takensembedding",
+                                     "reduce_vector_takensembedding"])
 
-    logger.info(f"delay={time_delay}, stride={stride}, reduce_func_index={reduce_func_index}")
+    logger.info(f"delay={time_delay}, stride={stride}, reduce_func={reduce_func}")
+
+    # 準備されたハイパーパラメータで一連の処理を実行
+    mvr = MultiVectorRepresentation()
     # initの中でハイパーパラメータがインスタンス変数に入る
     rv = ReduceVectors(time_delay=time_delay,
                        stride=stride,
-                       reduce_func_index=reduce_func_index)
+    #                   reduce_func_index=reduce_func_index)
+                       reduce_func=getattr(mvr, reduce_func))
     #pv = PrepareVectors("finetuned")
     pv = PrepareVectors("original")
     vec = pv.getVectors(num_rows)
@@ -497,13 +514,18 @@ def objective_tsne(trial: optuna.trial.Trial):
     perplexity = trial.suggest_int("perplexity",
                                    1,
                                    8)
-    reduce_func_index = trial.suggest_int("reduce_func_index", 0, 1)
+    #reduce_func_index = trial.suggest_int("reduce_func_index", 0, 1)
+    reduce_func = trial.suggest_categorical("reduce_func",
+                                    ["reduce_vector_takensembedding",
+                                     "reduce_vector_takensembedding"])
     #for perplexity in [1, 2, 4, 8]: # should be less than sample=10
     logger.info(f"perplexity={perplexity}")
+    mvr = MultiVectorRepresentation()
     #reduce_func_index = 1 # fixed for debug as takens embeddings
     rv = ReduceVectors(time_delay=1,
                        stride=1,
-                       reduce_func_index=reduce_func_index)
+#                       reduce_func_index=reduce_func_index)
+                       reduce_func=getattr(mvr, reduce_func))    
     pv = PrepareVectors("original")
     vec = pv.getVectors(num_rows)
     results, corr, tsne_vecs = rv.proc_tsne(vec, sample_idx, perplexity)
@@ -538,7 +560,7 @@ if __name__ == "__main__":
               "values_1",
               "params_stride",
               "params_time_delay",
-              "params_reduce_func_index"
+              "params_reduce_func"
               ]
              ),
         Mode("tsne",
@@ -546,7 +568,7 @@ if __name__ == "__main__":
              ["values_0",
               "values_1",
               "params_perplexity",
-              "params_reduce_func_index"
+              "params_reduce_func"
               ]
              ),
         
@@ -572,10 +594,31 @@ if __name__ == "__main__":
         trial_with_higher_score = study.trials_dataframe().sort_values(
                                             ["values_0", "values_1"]).head(10)
         results = trial_with_higher_score[mode.hyper_params]
-        print("結果発表!")
-        print(results)
-        print("BEST!")
-        print(study.best_trials)
+        logger.info("結果発表!")
+        logger.info(results)
+        logger.info("BEST!")
+        logger.info(study.best_trials)
+
+
+    # 必要なケースを可視化
+    for mode in mode_list:
+        logger.info(f"########## mode={mode}")
+        study_name = mode.name
+        storage_name = f"sqlite:///{study_name}.db"
+        study = optuna.create_study(
+            study_name=study_name,
+            storage=storage_name,
+            directions=["minimize", "minimize"],
+            load_if_exists=True)
+        #study.optimize(mode.proc, n_trials=3)
+        logger.debug(f"dataframe={study.trials_dataframe()}")
+        trial_with_higher_score = study.trials_dataframe().sort_values(
+                                            ["values_0", "values_1"]).head(10)
+        results = trial_with_higher_score[mode.hyper_params]
+        logger.info("結果発表!")
+        logger.info(results)
+        logger.info("BEST!")
+        logger.info(study.best_trials)
 
     # 単純にコサイン類似度のみ
     #sims = rv.pl_cosine_similarity(vec.select("embedding1")[sample_idx],
