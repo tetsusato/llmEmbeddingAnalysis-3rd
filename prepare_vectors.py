@@ -62,7 +62,7 @@ class PrepareVectors():
             
         if os.path.isfile(self.output):
             df = pl.read_parquet(self.output).limit(num)
-            print(f"loaded: {df.count()} rows.")
+            logger.debug(f"loaded: {df.count()} rows.")
             return df
         dim = 384
         df = pl.DataFrame(
@@ -113,7 +113,7 @@ class PrepareVectors():
     def createRandomSentence(self, num = 1):
         if os.path.isfile(self.random_output):
             df = pl.read_parquet(self.random_output)
-            print(f"loaded: {df.count()} rows.")
+            logger.debug(f"loaded: {df.count()} rows.")
             return df
         pldataset = self.getVectors(num)
         print("dataset=", pldataset)

@@ -133,10 +133,7 @@ class ReduceVectors():
             return None
         # 細かい成分の処理はnumpyの方がやりやすいので，変換して処理する
         npvec = embeddings.to_numpy(structured = False)
-        print("npvec0", npvec)
         npvec = np.apply_along_axis(lambda x: x[0], 1, npvec)
-        print("npvec", npvec)
-        print("npvec shape", npvec.shape)
         rdim = 3 # reduced dimension
         fvecrow = self.emb_dim - rdim + 1 # SlidingWindowじゃなかったら，変える
         sample_num = npvec.shape[0]
@@ -235,7 +232,10 @@ class ReduceVectors():
         # polars [sample_num, self.emb_dim] to numpy
         #npvec = embeddings.to_numpy(structured = False)
         npvec = embeddings.to_numpy()
-        ###npvec = np.apply_along_axis(lambda x: x[0], 1, npvec)
+        print("npvec=", npvec)
+        #npvec = np.apply_along_axis(lambda x: x[0], 1, npvec)
+        npvec = np.array(list(map(lambda x: x, npvec)))
+        print("npvec=", npvec)
         #npvec = npvec[sample_idx]
         fveclist = tsne.fit_transform(npvec)
         #print("fvec by tsne=", fveclist)
@@ -261,18 +261,31 @@ class ReduceVectors():
             }
             )
         return plsims
-    def proc(self, vecs: pl.DataFrame, sample_idx: list) -> pl.DataFrame:
+    def proc(self,
+             vecs: pl.DataFrame,
+             sample_idx: list) -> (pl.DataFrame,
+                        pl.DataFrame,
+                        np.ndarray,
+                        np.ndarray):
+        """
+        args:
+            vecs: pl.DataFrame [サンプルサイズ, 埋め込みベクトルサイズ]
+            sample_idx: list[int] vecsの中からピックアップするindex
+        return:
+            results: pl.DataFrame
+            corr: pl.DataFrame
+            bd1: np.ndarray
+            bd2: np.ndarray
+        """
+        # 基本データの準備
         vecs = vecs[sample_idx]
         vec1 = vecs.select("embedding1")
         vec2 = vecs.select("embedding2")
-        #pl.Config.set_tbl_cols(-1)
-        #pl.Config.set_fmt_str_lengths(100)
-
 
         num_rows = vecs.select(pl.len()).item()
         labels = vecs.select("label").to_numpy().reshape(num_rows)
 
-        #logger.info(f"input vec1={vec1}")
+        # 高次元ベクトルを多数の低次元ベクトルに変換
         reduced_vec1 = self.reduce_func(vec1,
                                         time_delay=self.time_delay,
                                         stride=self.stride,
@@ -282,15 +295,19 @@ class ReduceVectors():
                                         time_delay=self.time_delay,
                                         stride=self.stride,
                                         )
+
+        # 多数の低次元ベクトルをPDに変換
         bdlist1 = self.embedding_to_pd(reduced_vec1, sample_idx=sample_idx, labels=labels)
         #logger.info(f"bdlist1={bdlist1}")
         bdlist2 = self.embedding_to_pd(reduced_vec2, sample_idx=sample_idx, labels=labels)
         sample_num = len(bdlist1)
+        
         ##### 描画を分離する2024/07/06 2:16
         ##fig = plt.figure(figsize=(11, 5))
         ##fig.subplots_adjust(hspace=0.6, wspace=0.4)
         ##fig.suptitle(f"birth-death(delay={self.time_delay},stride={self.stride})")
 
+        # PD同士の距離を計算する
         distance = []
         pdw = PersistenceDiagramWrapper()
         for (i, (bd1, bd2, label)) in enumerate(zip(bdlist1, bdlist2, labels)):
@@ -312,7 +329,7 @@ class ReduceVectors():
         results = vecs.with_columns(
                               pl.DataFrame(
                                   distance,
-                                  schema={column_name: pl.Float64}))
+                                  schema={column_name: float}))
         #logger.info(f"results: {results}")
         corr = results.select(pl.corr("label", column_name, method="pearson").alias("pearson"),
                               pl.corr("label", column_name, method="spearman").alias("spearman"))
@@ -479,7 +496,7 @@ def objective_tda(trial: optuna.trial.Trial):
     number = trial.params
     #reduce_func_index = trial.suggest_int("reduce_func_index", 0, 1)
     reduce_func = trial.suggest_categorical("reduce_func",
-                                    ["reduce_vector_takensembedding",
+                                    ["reduce_vector_sampling",
                                      "reduce_vector_takensembedding"])
 
     logger.info(f"delay={time_delay}, stride={stride}, reduce_func={reduce_func}")
