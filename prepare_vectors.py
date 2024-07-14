@@ -53,9 +53,20 @@ class PrepareVectors():
 
     def getVectors(self, num):
         """
-            args:
-                num
             numの数だけpolarsのデータフレームを返す
+            args:
+                num: int
+            return:
+                pl.DataFrame(
+                          schema=
+                          [
+                              ("sentence1", pl.String),
+                              ("embedding1", pl.Array(pl.Float64, dim)),
+                              ("sentence2", pl.String),
+                              ("embedding2", pl.Array(pl.Float64, dim)),
+                              ("label", pl.Float64)
+                          ]
+                         )
         """
         #if os.path.isfile(self.input_data_filename):
         #    return

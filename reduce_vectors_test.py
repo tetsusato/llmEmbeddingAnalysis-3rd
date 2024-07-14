@@ -22,12 +22,36 @@ config.fileConfig("logging.conf", disable_existing_loggers = False)
 logger = logging.getLogger(__name__)
 
 class MultiVectorRepresentation:
+    def __init__(self,
+                 embedding_dim: int = 1,
+                 n: int = 1, # samplingで使う．takensでは自動決定なので使わない
+                 dimension: int = 3, # この研究では3次元
+                 ):
+        self.dimension = dimension
+        self.n = n
+        self.select_indexes = [np.random.choice(embedding_dim,
+                                               size=dimension,
+                                               replace=False)  for i in range(n)]
+        print("select_indexes=", self.select_indexes)
+        
+    def choice(self,
+               src: np.ndarray) -> np.ndarray:
+        """
+        args:
+            src: np.ndarray[self.embedding_dim]
+        return:
+            [self.n, dimension]
+        """
+        print("src=", src)
+        ret = [[src[i] for i in self.select_indexes[j]] for j in range(self.n)]
+        return ret
+        
+        
     def reduce_vector_sampling(self,
                                embeddings: pl.dataframe,
-                               n: int = 1,
                                time_delay: int = None,
                                stride: int = None,
-                               dimension: int = 3) -> np.ndarray:
+                               ) -> np.ndarray:
         """
         args:
             embeddings: pl.dataframe [サンプル数, 埋め込みベクトル(1次元)]
@@ -42,23 +66,30 @@ class MultiVectorRepresentation:
         #print(npvec)
         # [入力サンプル数, 埋め込みベクトルの次元]
         npvec = np.apply_along_axis(lambda x: x[0], 1, npvec)
-        npveclist = np.empty([npvec.shape[0], n, dimension])
+        npveclist = np.empty([npvec.shape[0], self.n, self.dimension])
         # iはnpvecのサンプルを巡る
-        for src, dst in zip(npvec, npveclist) : # [n, dimension]
-            for j in range(n): # [0, n-1]
+        #for src, dst in zip(npvec, npveclist) : # [n, dimension]
+        for i, src in enumerate(npvec) : # [n, dimension]
+            # srcは[embedding_dim]
+            """
+            for j in range(self.n): # [0, n-1]
                 #print("sample dst", dst[j])
-                #print("sample src", src)
-                # dst[j], src, sampledのサイズはすべて[dimension]
+                print("sample src", src)
+                # dst[j], sampledのサイズはすべて[dimension]
                 # sample[i]: [3], size=dimension
                 sampled = np.random.choice(src, size=dimension, replace=False)
                 #print("=>", sampled)
                 dst[j] = sampled
+            """
+            print("src=", src)
+            dst = self.choice(src)
+            print("new dst=", dst)
+            npveclist[i] = dst
 
-        #print("retrun=", npveclist)
+        print("retrun=", npveclist)
         return npveclist
     def reduce_vector_takensembedding(self,
                                       embeddings: pl.dataframe,
-                                      n: int = None,
                                       time_delay: int = 1,
                                       stride: int = 1,
                                      ) -> np.ndarray:
@@ -91,15 +122,15 @@ class ReduceVectors():
     def __init__(self,
                  time_delay,
                  stride,
-#                 reduce_func_index: int,
-                 reduce_func: Callable[[pl.dataframe,
-                                        int, # n
-                                        int, # time_delay
-                                        int, # stride
-                                        int, # dimension
-                                       ],
-                                       np.ndarray
-                                       ],
+#                 reduce_func: Callable[[pl.dataframe,
+#                                        int, # n
+#                                        int, # time_delay
+#                                        int, # stride
+#                                        int, # dimension
+#                                       ],
+#                                       np.ndarray
+#                                       ],
+
                  emb_dim = None):
         logger.debug("__init__")
         #reduce_func_array = [self.reduce_vector_sampling,
@@ -112,6 +143,7 @@ class ReduceVectors():
             self.emb_dim = emb_dim
         self.time_delay = time_delay
         self.stride = stride
+        """
         self.reduce_func: Callable[[pl.dataframe,
                                         int, # n
                                         int, # time_delay
@@ -120,6 +152,26 @@ class ReduceVectors():
                                         ],
 #                                       np.ndarray] = reduce_func_array[reduce_func_index]
                                        np.ndarray] = reduce_func
+        """
+    def set_reduce_func(self,
+                        reduce_func: Callable[[pl.dataframe,
+                                               int, # n
+                                               int, # time_delay
+                                               int, # stride
+                                               int, # dimension
+                                              ],
+                                              np.ndarray
+                                              ],
+                        ):
+        self.reduce_func: Callable[[pl.dataframe,
+                                        int, # n
+                                        int, # time_delay
+                                        int, # stride
+                                        int, # dimension
+                                        ],
+#                                       np.ndarray] = reduce_func_array[reduce_func_index]
+                                       np.ndarray] = reduce_func
+        
     def sampling(self, embeddings: pl.dataframe) -> pl.dataframe:
         """
         args:
@@ -180,7 +232,7 @@ class ReduceVectors():
         pdlist = []
         #for i in range(fveclist.shape[0]):
         #for i in range(0, sample_num):
-        #logger.info(f"embeddings={embeddings}")
+        logger.debug(f"embeddings={embeddings}")
         for (fvecs, label) in zip(embeddings, labels):
             #fig = go.Figure()
 
@@ -209,7 +261,7 @@ class ReduceVectors():
             #print("pdlist=", pd.dth_diagram(1).birth_death_times())
             #print("birth death=", birth_death)
             birth_death_list.append(birth_death)
-
+        logger.debug(f"birdh-deat={birth_death_list}")
         return birth_death_list
 
     def embedding_to_tsne(self,
@@ -298,8 +350,9 @@ class ReduceVectors():
 
         # 多数の低次元ベクトルをPDに変換
         bdlist1 = self.embedding_to_pd(reduced_vec1, sample_idx=sample_idx, labels=labels)
-        #logger.info(f"bdlist1={bdlist1}")
+        logger.debug(f"bdlist1={bdlist1}")
         bdlist2 = self.embedding_to_pd(reduced_vec2, sample_idx=sample_idx, labels=labels)
+        logger.debug(f"bdlist2={bdlist2}")
         sample_num = len(bdlist1)
         
         ##### 描画を分離する2024/07/06 2:16
@@ -311,7 +364,8 @@ class ReduceVectors():
         distance = []
         pdw = PersistenceDiagramWrapper()
         for (i, (bd1, bd2, label)) in enumerate(zip(bdlist1, bdlist2, labels)):
-            #print("bd=", bd1.shape)
+            logger.debug(f"bd1={bd1}")
+            logger.debug(f"bd2={bd2}")
             pdobj1 = pdw.createPdObject(bd1)
             pdobj2 = pdw.createPdObject(bd2)
             dis = hc.distance.wasserstein(pdobj1, pdobj2)*1000
@@ -502,15 +556,23 @@ def objective_tda(trial: optuna.trial.Trial):
     logger.info(f"delay={time_delay}, stride={stride}, reduce_func={reduce_func}")
 
     # 準備されたハイパーパラメータで一連の処理を実行
-    mvr = MultiVectorRepresentation()
     # initの中でハイパーパラメータがインスタンス変数に入る
     rv = ReduceVectors(time_delay=time_delay,
                        stride=stride,
-    #                   reduce_func_index=reduce_func_index)
-                       reduce_func=getattr(mvr, reduce_func))
+    #                   reduce_func_index=reduce_func_index
+    # この時点では埋め込みベクトルの次元が分からないので，mvrを初期化できない
+    #                   reduce_func=getattr(mvr, reduce_func)
+                       )
     #pv = PrepareVectors("finetuned")
     pv = PrepareVectors("original")
     vec = pv.getVectors(num_rows)
+    embedding_example = vec["embedding1"].to_numpy()
+    embedding_dimension = embedding_example.shape[1]
+    sample_number = embedding_example.shape[0]
+    mvr = MultiVectorRepresentation(embedding_dim=embedding_dimension,
+                                        n=embedding_dimension - 3, # 適当
+                                        dimension=3)        
+    rv.set_reduce_func(getattr(mvr, reduce_func))
     results, corr, pdlist1, pdlist2 = rv.proc(vec, sample_idx)
     logger.info(f"results in objective_tda={results}")
     logger.info(f"corr in objective_tda={corr}")
@@ -549,18 +611,7 @@ def objective_tsne(trial: optuna.trial.Trial):
     pearson = corr.select("pearson").head().item()
     spearman = corr.select("spearman").head().item()
     
-    """
-    results_df = results_df.vstack(pl.DataFrame({
-                               "perplexity": perplexity,
-                               "pearson": corr.select("pearson").head().item(),
-                               "spearman": corr.select("spearman").head().item()
-                               }
-        ))
-    print("結果発表!")
-    pearson_max_idx = results_df.select(pl.col("pearson").abs().arg_max()).head().item()
-    spearman_max_idx = results_df.select(pl.col("spearman").abs().arg_max()).head().item()
-    print(results_df[[pearson_max_idx, spearman_max_idx]])
-    """
+
     return pearson, spearman    
 
 
@@ -606,7 +657,7 @@ if __name__ == "__main__":
             storage=storage_name,
             directions=["minimize", "minimize"],
             load_if_exists=True)
-        study.optimize(mode.proc, n_trials=3)
+        study.optimize(mode.proc, n_trials=30)
         logger.debug(f"dataframe={study.trials_dataframe()}")
         trial_with_higher_score = study.trials_dataframe().sort_values(
                                             ["values_0", "values_1"]).head(10)
