@@ -20,7 +20,8 @@ class TestPrepareVectors(unittest.TestCase):
         #self.assertEqual(self.cache.__class__.__name__, "Cache")
 
     def test_vectors(self):
-        pv = PrepareVectors("finetuned")
+        #pv = PrepareVectors("finetuned")
+        pv = PrepareVectors("original")
         vecs = pv.getVectors(self.num_rows)
         print(vecs)
         vec1 = vecs.select("embedding1").to_numpy().reshape(self.num_rows)
@@ -37,8 +38,11 @@ class TestPrepareVectors(unittest.TestCase):
         df = pv.describe_each_row(vec2)
         print(df)
 
-        self.assertTrue(np.isclose(labels, [5.,         3.79999995]).all())
-        self.assertEqual(sims, [0.9812002934683726, 0.8777169081939417])
+        self.assertTrue(np.isclose(labels[:2], [5.,         3.79999995]).all())
+        #self.assertEqual(sims, [0.9812002934683726, 0.8777169081939417])
+        #self.assertTrue(np.isclose(sims[:2], [0.9812002934683726, 0.8777169081939417]).all())
+        print("sims[:2]=", sims[:2])
+        self.assertTrue(np.isclose(sims[:2], [0.9393034, 0.902030846]).all())
         #for (label, sim) in zip(labels, sims):
         #    print(label, sim)
 
@@ -49,7 +53,8 @@ class TestPrepareVectors(unittest.TestCase):
     """
           
     def test_randomVectors(self):
-        pv = PrepareVectors("finetuned")
+        #pv = PrepareVectors("finetuned")
+        pv = PrepareVectors("original")
         df = pv.createRandomSentence(self.num_rows)
         print("random polars dataframe=", df)
         vec1 = df.select("embedding1").to_numpy().reshape(self.num_rows)

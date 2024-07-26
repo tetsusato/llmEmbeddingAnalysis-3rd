@@ -21,6 +21,7 @@ class PrepareVectors():
             mode: "original" or "finetuned"
     """
     params = Params("config.toml")
+    # このクラスで出力する埋め込みベクトルの保存ファイル．通常はparquet
     input_data_filename_original = params.config["io"]["input_filename_original"]
     input_data_filename_finetuned = params.config["io"]["input_filename_finetuned"]
     random_vectors_by_original = params.config["io"]["random_vectors_by_original"]
@@ -41,7 +42,8 @@ class PrepareVectors():
             self.output = self.input_data_filename_original
             self.random_output = self.random_vectors_by_original
             if model_load:
-                self.model = SentenceTransformer(self.original_model)
+                #self.model = SentenceTransformer(self.original_model)
+                self.model = SentenceTransformer("Alibaba-NLP/gte-Qwen2-7B-instruct")
         elif mode == "finetuned":
             self.output = self.input_data_filename_finetuned
             self.random_output = self.random_vectors_by_finetuned
