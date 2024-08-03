@@ -44,14 +44,18 @@ class PrepareVectors():
             if model_load:
                 #self.model = SentenceTransformer(self.original_model)
                 self.model = SentenceTransformer("Alibaba-NLP/gte-Qwen2-7B-instruct")
+                logger.info(f"model={self.model}")
         elif mode == "finetuned":
             self.output = self.input_data_filename_finetuned
             self.random_output = self.random_vectors_by_finetuned
+            logger.info(f"model may be trained by {original_model}")
             if model_load:
                 self.model = SentenceTransformer(self.finetuned_model)
+                logger.info(f"model={self.model}")
         
         logger.debug(f"train example={self.train_dataset[0]}")
         logger.debug(f"valid example={self.valid_dataset[0]}")
+        logger.info(f"prepare mode={mode}")
 
     def getVectors(self, num):
         """
@@ -272,10 +276,3 @@ if __name__ == "__main__":
     dif = np.abs(emb1-emb2)
     rel_tol = 1e-1
     #idx = np.where(dif <= threshhold)[0]
-    idx = np.where(np.isclose(emb1, emb2, rtol=rel_tol))
-    elm = dif[idx]
-    print(idx)
-    print(elm)
-    print("original values")
-    print(emb1[idx])
-    print(emb2[idx])
