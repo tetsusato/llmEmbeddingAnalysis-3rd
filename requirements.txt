@@ -6,6 +6,7 @@ giotto_tda==0.6.2
 homcloud==4.4.1
 matplotlib==3.9.0
 numpy==1.23.5
+optuna==3.6.1
 pandas==2.2.2
 plotly==5.22.0
 polars==0.20.31
