@@ -23,7 +23,7 @@ random_vectors_by_finetuned = "random-vector-finetuned.parquet"
 #language_model = "sentence-transformers/all-MiniLM-L6-v2"
 #embedding_vector_dimension = 384
 language_model = "Alibaba-NLP/gte-Qwen2-7B-instruct"
-embedding_vector_dimension = 384
+embedding_vector_dimension = 3584
 input_model = ["glue", "stsb"]
 
 
