@@ -209,87 +209,21 @@ class TestReduceVectors(unittest.TestCase):
             }
             )
         
-        results, corr, bd1, bd2 = rv.proc(emb,
+        results, corr, bd1, bd2 = rv.proc_tda(emb,
                                     [0, 1])
         print(results)
         print(corr)
         print(bd1)
         print(bd2)
 
-    def test_choice(self):
-        np.random.seed(124)
-        mvr = MultiVectorRepresentation(embedding_dim=4,
-                                        n=2,
-                                        dimension=3)        
-        emb = pl.DataFrame({
-                "embedding1": [[1.0, 2.0, 3.0, 4.0],
-                              [1.1, 2.1, 3.1, 4.1]],
-                "embedding2": [[1.0, 2.0, 1.0, 2.0],
-                               [1.1, 2.1, 1.1, 2.1]],
-                "label": [2.3, 2.4]
-            }
-            )
-        num_rows = emb.select(pl.len()).item()
-        vec = emb.select("embedding1")
-        # polars [sample_num, self.emb_dim] to numpy
-        npvec = vec.to_numpy(structured = False)
-        #print(npvec)
-        # [入力サンプル数, 埋め込みベクトルの次元]
-        # ここまでやって，embedding1のnparrayができる
-        npvec = np.apply_along_axis(lambda x: x[0], 1, npvec)
-        ret = mvr.choice(npvec[0])
-        print("reduced vec=", ret)
-        np.testing.assert_array_equal(ret,
-                                      [[4.0, 2.0, 1.0], [1.0, 2.0, 3.0]]
-                                      )
-        ret = mvr.choice(npvec[1])
-        print("reduced vec=", ret)
-        np.testing.assert_array_equal(ret,
-                                      [[4.1, 2.1, 1.1], [1.1, 2.1, 3.1]]
-                                      )
-    def test_reduce_vector_sampling(self):
-        np.random.seed(124)
-        mvr = MultiVectorRepresentation(embedding_dim=4,
-                                        n=2,
-                                        dimension=3)        
-        rv = ReduceVectors(emb_dim = 4,
-                           time_delay=1,
-                           stride=1,
-                           )
-        rv.set_reduce_func(getattr(mvr, "reduce_vector_sampling"))
-        emb = pl.DataFrame({
-                "embedding1": [[1.0, 2.0, 3.0, 4.0],
-                              [1.1, 2.1, 3.1, 4.1]],
-                "embedding2": [[1.0, 2.0, 1.0, 2.0],
-                               [1.1, 2.1, 1.1, 2.1]],
-                "label": [2.3, 2.4]
-            }
-            )
-        num_rows = emb.select(pl.len()).item()
-        vec = emb.select("embedding1")
-        print("vec=", vec)
-        labels = emb["label"].to_numpy().reshape(num_rows)
-        #reduced_vec = rv.reduce_func(vec,
-        #                             n=2,
-        #                             )
-        reduced_vec = mvr.reduce_vector_sampling(vec)
-        print("reduced vec=", reduced_vec)
-        np.testing.assert_array_equal(reduced_vec,
-                                     [[[4.,  2.,  1. ],
-                                       [1.,  2.,  3. ]],
-
-                                      [[4.1, 2.1, 1.1],
-                                       [1.1, 2.1, 3.1]]]
-
-                    )
-    def test_reduce_vector_takensembedding(self):
+    def test_proc_pca(self):
         mvr = MultiVectorRepresentation(embedding_dim=4,
                                         n=2,
                                         dimension=3)        
         
-        rv = ReduceVectors(emb_dim = 4,
-                           time_delay=1,
+        rv = ReduceVectors(time_delay=1,
                            stride=1,
+                           emb_dim = 4,
                            )
         rv.set_reduce_func(getattr(mvr, "reduce_vector_takensembedding"))
         emb = pl.DataFrame({
@@ -300,20 +234,20 @@ class TestReduceVectors(unittest.TestCase):
                 "label": [2.3, 2.4]
             }
             )
-        num_rows = emb.select(pl.len()).item()
-        vec = emb.select("embedding1")
-        print("vec=", vec)
-        labels = emb["label"].to_numpy().reshape(num_rows)
-        #reduced_vec = rv.reduce_vector_takensembedding(vec)
-        reduced_vec = mvr.reduce_vector_takensembedding(vec)
-        np.testing.assert_array_equal(reduced_vec,
-                    [[[1.,  2.,  3. ],
-                      [2.,  3.,  4., ]],
-                    [[1.1, 2.1, 3.1],
-                     [2.1, 3.1, 4.1]]],
-
-                    )
         
+        results, corr, pcalist = rv.proc_pca(emb,
+                                    [0, 1])
+        print(results)
+        print(corr)
+        logger.info(f"pcalist={pcalist}")
+        np.testing.assert_array_almost_equal(pcalist,
+                                     [[ 1.34332191, -0.07406918],
+                                      [ 1.48509638,  0.06699818],
+                                      [-1.48509638, -0.06699818],
+                                      [-1.34332191,  0.07406918]]
+                               )
+        
+
     def test_embedding_to_pd(self):
         mvr = MultiVectorRepresentation(embedding_dim=4,
                                         n=2,
@@ -370,4 +304,31 @@ class TestReduceVectors(unittest.TestCase):
                                     sample_idx=[0, 1, 2, 3],
                                     perplexity=1.0)
         print("tsne", tsne)
+    def test_embedding_to_pca(self):
+        mvr = MultiVectorRepresentation(embedding_dim=4,
+                                        n=2,
+                                        dimension=3)        
+        
+        rv = ReduceVectors(time_delay=1,
+                           stride=1,
+                           emb_dim = 4)
+        rv.set_reduce_func(getattr(mvr, "reduce_vector_takensembedding"))
+        vecs = pl.DataFrame({
+                "embedding1": [[1.0, 2.0, 3.0, 4.0],
+                              [1.1, 2.1, 3.1, 4.1]],
+                "embedding2": [[1.0, 2.0, 1.0, 2.0],
+                               [1.1, 2.1, 1.1, 2.1]],
+                "label": [2.3, 2.4]
+            }
+            )
+        vec = pl.concat([
+            vecs["embedding1"],
+            vecs["embedding2"]],
+                        how="vertical").rename("embedding")
+
+        print("vec=", vec)
+        pca = rv.embedding_to_pca(vec,
+                                    sample_idx=[0, 1, 2, 3],
+                                    )
+        print("pca", pca)
         

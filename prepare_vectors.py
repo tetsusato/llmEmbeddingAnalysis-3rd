@@ -27,14 +27,21 @@ class PrepareVectors():
     random_vectors_by_original = params.config["io"]["random_vectors_by_original"]
     random_vectors_by_finetuned = params.config["io"]["random_vectors_by_finetuned"]
     original_model = params.config["io"]["original_model"]    
-    finetuned_model = params.config["io"]["finetuned_model"]    
+    finetuned_model = params.config["io"]["finetuned_model"]
+    input_model = params.config["io"]["input_model"]
     def __init__(self, mode, model_load=True):
         #if os.path.isfile(self.input_data_filename):
         #    return
         revision = "bcdcba79d07bc864c1c254ccfcedcce55bcc9a8c"
+        """
         self.train_dataset = load_dataset("glue", "stsb", split="train",
                                           revision=revision)
         self.valid_dataset = load_dataset("glue", "stsb", split="validation",
+                                          revision=revision)
+        """
+        self.train_dataset = load_dataset(self.input_model[0], self.input_model[1], split="train",
+                                          revision=revision)
+        self.valid_dataset = load_dataset(self.input_model[0], self.input_model[1], split="validation",
                                           revision=revision)
         self.numRows = len(self.train_dataset)
 
@@ -42,8 +49,8 @@ class PrepareVectors():
             self.output = self.input_data_filename_original
             self.random_output = self.random_vectors_by_original
             if model_load:
-                #self.model = SentenceTransformer(self.original_model)
-                self.model = SentenceTransformer("Alibaba-NLP/gte-Qwen2-7B-instruct")
+                self.model = SentenceTransformer(self.original_model)
+                #self.model = SentenceTransformer("Alibaba-NLP/gte-Qwen2-7B-instruct")
                 logger.info(f"model={self.model}")
         elif mode == "finetuned":
             self.output = self.input_data_filename_finetuned
@@ -57,8 +64,12 @@ class PrepareVectors():
         logger.debug(f"valid example={self.valid_dataset[0]}")
         logger.info(f"prepare mode={mode}")
 
-    def getVectors(self, num):
+    def getVectors(self,
+                   num,
+                   cache_enable = True):
         """
+            self.modelの内容に基づくモデルを使い，
+            self.input_modelの入力データから，
             numの数だけpolarsのデータフレームを返す
             args:
                 num: int
@@ -76,11 +87,11 @@ class PrepareVectors():
         """
         #if os.path.isfile(self.input_data_filename):
         #    return
-            
-        if os.path.isfile(self.output):
-            df = pl.read_parquet(self.output).limit(num)
-            logger.debug(f"loaded: {df.count()} rows.")
-            return df
+        if cache_enable:
+            if os.path.isfile(self.output):
+                df = pl.read_parquet(self.output).limit(num)
+                logger.debug(f"loaded: {df.count()} rows.")
+                return df
         dim = 384
         df = pl.DataFrame(
                           schema=

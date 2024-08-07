@@ -10,112 +10,18 @@ import plotly.graph_objects as go
 import homcloud.interface as hc
 from PersistenceDiagramWrapper import PersistenceDiagramWrapper
 from sklearn.manifold import TSNE
+from sklearn.decomposition import PCA
 from visualize_vectors import euclidean_distance, transform, plot
 import sys
 import optuna
 from dataclasses import dataclass
 from typing import Callable
-
+from multi_vector_representation import MultiVectorRepresentation
 
 config.fileConfig("logging.conf", disable_existing_loggers = False)
 
 logger = logging.getLogger(__name__)
 
-class MultiVectorRepresentation:
-    def __init__(self,
-                 embedding_dim: int = 1,
-                 n: int = 1, # samplingで使う．takensでは自動決定なので使わない
-                 dimension: int = 3, # この研究では3次元
-                 ):
-        self.dimension = dimension
-        self.n = n
-        self.select_indexes = [np.random.choice(embedding_dim,
-                                               size=dimension,
-                                               replace=False)  for i in range(n)]
-        print("select_indexes=", self.select_indexes)
-        
-    def choice(self,
-               src: np.ndarray) -> np.ndarray:
-        """
-        args:
-            src: np.ndarray[self.embedding_dim]
-        return:
-            [self.n, dimension]
-        """
-        print("src=", src)
-        ret = [[src[i] for i in self.select_indexes[j]] for j in range(self.n)]
-        return ret
-        
-        
-    def reduce_vector_sampling(self,
-                               embeddings: pl.dataframe,
-                               time_delay: int = None,
-                               stride: int = None,
-                               ) -> np.ndarray:
-        """
-        args:
-            embeddings: pl.dataframe [サンプル数, 埋め込みベクトル(1次元)]
-            n: int サンプリングして作るベクトルの数
-            time_delay: int Not used in this method
-            stride: int Not used in this method
-        return:
-            np.ndarray: [サンプル数, n, dimension]
-        """
-        # polars [sample_num, self.emb_dim] to numpy
-        npvec = embeddings.to_numpy(structured = False)
-        #print(npvec)
-        # [入力サンプル数, 埋め込みベクトルの次元]
-        npvec = np.apply_along_axis(lambda x: x[0], 1, npvec)
-        npveclist = np.empty([npvec.shape[0], self.n, self.dimension])
-        # iはnpvecのサンプルを巡る
-        #for src, dst in zip(npvec, npveclist) : # [n, dimension]
-        for i, src in enumerate(npvec) : # [n, dimension]
-            # srcは[embedding_dim]
-            """
-            for j in range(self.n): # [0, n-1]
-                #print("sample dst", dst[j])
-                print("sample src", src)
-                # dst[j], sampledのサイズはすべて[dimension]
-                # sample[i]: [3], size=dimension
-                sampled = np.random.choice(src, size=dimension, replace=False)
-                #print("=>", sampled)
-                dst[j] = sampled
-            """
-            print("src=", src)
-            dst = self.choice(src)
-            print("new dst=", dst)
-            npveclist[i] = dst
-
-        print("retrun=", npveclist)
-        return npveclist
-    def reduce_vector_takensembedding(self,
-                                      embeddings: pl.dataframe,
-                                      time_delay: int = 1,
-                                      stride: int = 1,
-                                     ) -> np.ndarray:
-        """
-        args:
-            embeddings: pl.dataframe [サンプル数, 埋め込みベクトル(1次元)]
-            n: int Not used in this method
-            time_delay: int
-            stride: int
-        return:
-            np.ndarray: [サンプル数, TakensEmbeddingの数, dimension=3]
-        """
-        #logger.info(f"embeddings={embeddings}")
-        from gtda.time_series import TakensEmbedding
-        #te = TakensEmbedding(time_delay=1, dimension=3, stride=1)
-        #te = TakensEmbedding(time_delay=self.time_delay, dimension=3, stride=self.stride)
-        te = TakensEmbedding(time_delay=time_delay, dimension=3, stride=stride)
-        # polars [sample_num, self.emb_dim] to numpy
-        npvec = embeddings.to_numpy(structured = False)
-        npvec = np.apply_along_axis(lambda x: x[0], 1, npvec)
-        #npvec = npvec[sample_idx]
-
-        #labels = labels[sample_idx]
-        fveclist = te.fit_transform(npvec)
-        #print("fvec by gitto=", fveclist)
-        return fveclist
 
 class ReduceVectors():
 
@@ -275,13 +181,7 @@ class ReduceVectors():
         return:
             np.ndarray
         """
-        #sample_num = embeddings.select(pl.len()).item()
-        #sample_num = 7 # for test
-        #sample_num = 1 # for more test
-        #fveclist = self.sampling(embeddings)
-        #te = TakensEmbedding(time_delay=1, dimension=3, stride=1)
         tsne = TSNE(n_components=2, perplexity=perplexity, random_state=13)
-        # polars [sample_num, self.emb_dim] to numpy
         #npvec = embeddings.to_numpy(structured = False)
         npvec = embeddings.to_numpy()
         print("npvec=", npvec)
@@ -290,6 +190,29 @@ class ReduceVectors():
         print("npvec=", npvec)
         #npvec = npvec[sample_idx]
         fveclist = tsne.fit_transform(npvec)
+        #print("fvec by tsne=", fveclist)
+        return fveclist
+    def embedding_to_pca(self,
+                          embeddings: pl.dataframe,
+                          sample_idx: list,
+                          n_components: int = 2) -> np.ndarray:
+        """
+        args:
+            embeddings: pl.dataframe
+            sample_idx: list
+        return:
+            np.ndarray
+        """
+        pca = PCA(n_components=n_components,
+                   random_state=13)
+        #npvec = embeddings.to_numpy(structured = False)
+        npvec = embeddings.to_numpy()
+        logger.debug(f"npvec={npvec}")
+        #npvec = np.apply_along_axis(lambda x: x[0], 1, npvec)
+        npvec = np.array(list(map(lambda x: x, npvec)))
+        logger.debug(f"npvec={npvec}")
+        #npvec = npvec[sample_idx]
+        fveclist = pca.fit_transform(npvec)
         #print("fvec by tsne=", fveclist)
         return fveclist
     
@@ -313,7 +236,7 @@ class ReduceVectors():
             }
             )
         return plsims
-    def proc(self,
+    def proc_tda(self,
              vecs: pl.DataFrame,
              sample_idx: list) -> (pl.DataFrame,
                         pl.DataFrame,
@@ -497,6 +420,84 @@ class ReduceVectors():
         #print(f"corr = {corr}")
         
         return results, corr, tsnelist
+    def proc_pca(self, vecs: pl.datatypes.List(pl.Float64), sample_idx):
+        logger.info(f"input={vecs}")
+        vecs = vecs[sample_idx]
+        logger.info(f"sampled=={vecs}")
+        # 入力されたベクトルの数．sample_idxの長さに等しい
+        num_rows = vecs.select(pl.len()).item()
+        labels = vecs.select("label").to_numpy().reshape(num_rows)
+            
+        # 入力は2カラムあるので，一つにまとめる
+        vec = pl.concat([
+            vecs["embedding1"],
+            vecs["embedding2"]],
+                        how="vertical").rename("embedding")
+        logger.info(f"concatinated=={vec}")
+        # PCAで次元削減した結果のベクトルを得る
+        pcalist = self.embedding_to_pca(vec,
+                                          sample_idx=sample_idx,
+                                          )
+        logger.info(f"pcalist={pcalist}")
+        #print("emb to tsne1=", tsnelist)
+        # 元々の2入力に対応した次元削減済みベクトルを得る
+        pcalist1 = pcalist[0:len(sample_idx)]
+        pcalist2 = pcalist[len(sample_idx):2*len(sample_idx)]
+
+        xmin = np.min(pcalist[:, 0])
+        xmax = np.max(pcalist[:, 0])
+        ymin = np.min(pcalist[:, 1])
+        ymax = np.max(pcalist[:, 1])
+
+        sample_num = len(pcalist) # これも入力ベクトル数=sample_idxの長さのはず
+        #fig = plt.figure(figsize=(18, 5))
+        #fig.subplots_adjust(hspace=0.6, wspace=0.4)
+        #fig.suptitle(f"tsne: perplexity={perplexity}")
+        distance = []
+        for (i, (v1, v2)) in enumerate(zip(pcalist1, pcalist2)):
+            dis = np.linalg.norm(v1 - v2)
+            distance.append(dis)
+            """
+            label = labels[i]
+            # 上下に同じデータのembedding1とembedding2に対応した結果をプロット
+            ax = fig.add_subplot(2, sample_num, i+1)
+            ax.set_title(f"{i}:{dis:.3f}({label:.2f})")
+            #ax.set_title(f"{i}:{sim:.3f}({label:.2f})")
+            #ax.scatter(x=v1[:, 0], y=v1[:, 1])
+            ax.scatter(x=[v1[0]], y=[v1[1]])
+            ax.set_xlim([xmin, xmax])
+            ax.set_ylim([ymin, ymax])
+            ax = fig.add_subplot(2, sample_num, i+1+sample_num)
+            #ax.set_title(f"{i}:{dis:.3f}({label:.2f})")
+            #ax.set_title(f"{i}:{sim:.3f}({label:.2f})")
+            #ax.scatter(x=v2[:, 0], y=v2[:, 1])
+            ax.scatter(x=[v2[0]], y=[v2[1]])
+            ax.set_xlim([xmin, xmax])
+            ax.set_ylim([ymin, ymax])
+            """
+        #fig.show()
+        column_name = "dis"
+        distance = pl.DataFrame(
+                       distance,
+                       schema={
+                           column_name: pl.Float64
+                           }
+                   )
+        results = vecs.with_columns(
+                    pl.DataFrame(
+                        distance,
+                        schema={
+                           column_name: pl.Float64
+                           }
+                        )
+            )
+
+        #logger.info(f"results: {results}")
+        corr = results.select(pl.corr("label", column_name, method="pearson").alias("pearson"),
+                              pl.corr("label", column_name, method="spearman").alias("spearman"))
+        #print(f"corr = {corr}")
+        
+        return results, corr, pcalist
     #def draw_tsne(self, vecs: pl.datatypes.List(pl.Float64), sample_idx, perplexity):
     def draw_tsne(self, tsne_vecs: np.ndarray, sample_idx):
         vecs = vecs[sample_idx]
