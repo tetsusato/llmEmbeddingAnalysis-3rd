@@ -26,9 +26,9 @@ class PrepareVectors():
     input_data_filename_finetuned = params.config["io"]["input_filename_finetuned"]
     random_vectors_by_original = params.config["io"]["random_vectors_by_original"]
     random_vectors_by_finetuned = params.config["io"]["random_vectors_by_finetuned"]
-    original_model = params.config["io"]["original_model"]    
-    finetuned_model = params.config["io"]["finetuned_model"]
+    language_model = params.config["io"]["language_model"]    
     input_model = params.config["io"]["input_model"]
+    embedeing_vector_dimension = params.config["io"]["embedding_vector_dimension"]
     def __init__(self, mode, model_load=True):
         #if os.path.isfile(self.input_data_filename):
         #    return
@@ -45,20 +45,12 @@ class PrepareVectors():
                                           revision=revision)
         self.numRows = len(self.train_dataset)
 
-        if mode == "original":
-            self.output = self.input_data_filename_original
-            self.random_output = self.random_vectors_by_original
-            if model_load:
-                self.model = SentenceTransformer(self.original_model)
-                #self.model = SentenceTransformer("Alibaba-NLP/gte-Qwen2-7B-instruct")
-                logger.info(f"model={self.model}")
-        elif mode == "finetuned":
-            self.output = self.input_data_filename_finetuned
-            self.random_output = self.random_vectors_by_finetuned
-            logger.info(f"model may be trained by {original_model}")
-            if model_load:
-                self.model = SentenceTransformer(self.finetuned_model)
-                logger.info(f"model={self.model}")
+        self.output = self.input_data_filename_original
+        self.random_output = self.random_vectors_by_original
+        if model_load:
+            self.model = SentenceTransformer(self.language_model)
+            #self.model = SentenceTransformer("Alibaba-NLP/gte-Qwen2-7B-instruct")
+            logger.info(f"model={self.model}")
         
         logger.debug(f"train example={self.train_dataset[0]}")
         logger.debug(f"valid example={self.valid_dataset[0]}")
@@ -85,6 +77,7 @@ class PrepareVectors():
                           ]
                          )
         """
+        
         #if os.path.isfile(self.input_data_filename):
         #    return
         if cache_enable:
@@ -92,7 +85,9 @@ class PrepareVectors():
                 df = pl.read_parquet(self.output).limit(num)
                 logger.debug(f"loaded: {df.count()} rows.")
                 return df
-        dim = 384
+        else:
+            assert hasattr(self, 'model'), "language model should be defined"
+        dim = self.embedeing_vector_dimension
         df = pl.DataFrame(
                           schema=
                           [
@@ -276,8 +271,9 @@ if __name__ == "__main__":
     opt = parser.parse_args()
     mode = opt.mode
     
-    vecs = PrepareVectors(mode, model_load=False)
-    embeddings = vecs.getVectors(7)
+    vecs = PrepareVectors(mode, model_load=True)
+    # embeddings = vecs.getVectors(7, cache_enable=False)
+    embeddings = vecs.getVectors(1000, cache_enable=False)
     print("getVectors", embeddings)
     sample_idx = [0, 6]
     emb1 = embeddings.select("embedding1")[sample_idx].to_numpy()[:, 0]
