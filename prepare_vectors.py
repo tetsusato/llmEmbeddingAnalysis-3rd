@@ -8,6 +8,11 @@ from datasets import load_dataset
 from sentence_transformers import SentenceTransformer, models
 import polars as pl
 import argparse
+import hydra
+from hydra import compose, initialize
+from omegaconf import DictConfig
+
+
 from logging import config
 import logging
 config.fileConfig("logging.conf", disable_existing_loggers = False)
@@ -20,6 +25,7 @@ class PrepareVectors():
         PrepareVectors(mode)
             mode: "original" or "finetuned"
     """
+    """
     params = Params("config.toml")
     # このクラスで出力する埋め込みベクトルの保存ファイル．通常はparquet
     input_data_filename_original = params.config["io"]["input_filename_original"]
@@ -29,7 +35,13 @@ class PrepareVectors():
     language_model = params.config["io"]["language_model"]    
     input_model = params.config["io"]["input_model"]
     embedeing_vector_dimension = params.config["io"]["embedding_vector_dimension"]
-    def __init__(self, mode, model_load=True):
+    """
+    def __init__(self, cfg: DictConfig, model_load=True):
+        self.input_model = cfg.io.input_model
+        self.input_filename = cfg.io.input_filename
+        self.random_vectors_filename = cfg.io.random_vectors_filename
+        self.language_model = cfg.io.language_model
+        self.embedding_vector_dimension = cfg.io.embedding_vector_dimension
         #if os.path.isfile(self.input_data_filename):
         #    return
         revision = "bcdcba79d07bc864c1c254ccfcedcce55bcc9a8c"
@@ -45,8 +57,9 @@ class PrepareVectors():
                                           revision=revision)
         self.numRows = len(self.train_dataset)
 
-        self.output = self.input_data_filename_original
-        self.random_output = self.random_vectors_by_original
+        # メイン処理からみて入力ファイル名なので，準備処理としては出力ファイル名
+        self.output = self.input_filename
+        self.random_output = self.random_vectors_filename
         if model_load:
             self.model = SentenceTransformer(self.language_model)
             #self.model = SentenceTransformer("Alibaba-NLP/gte-Qwen2-7B-instruct")
@@ -54,7 +67,6 @@ class PrepareVectors():
         
         logger.debug(f"train example={self.train_dataset[0]}")
         logger.debug(f"valid example={self.valid_dataset[0]}")
-        logger.info(f"prepare mode={mode}")
 
     def getVectors(self,
                    num,
@@ -87,7 +99,7 @@ class PrepareVectors():
                 return df
         else:
             assert hasattr(self, 'model'), "language model should be defined"
-        dim = self.embedeing_vector_dimension
+        dim = self.embedding_vector_dimension
         df = pl.DataFrame(
                           schema=
                           [
@@ -260,7 +272,14 @@ class PrepareVectors():
                 describedf = pd.concat([describedf, df])
         return describedf
 
+@hydra.main(config_name="config", version_base=None, config_path="conf")
+def load_config(cfg: DictConfig) -> DictConfig:
+    return cfg
+
 if __name__ == "__main__":
+    with initialize(version_base=None, config_path="conf"):
+        cfg = compose(config_name="config")
+    print(f"cfg={cfg}")
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--mode",
@@ -269,9 +288,8 @@ if __name__ == "__main__":
         help="original: original model, finetuned: fine-tuned model"
         )
     opt = parser.parse_args()
-    mode = opt.mode
-    
-    vecs = PrepareVectors(mode, model_load=True)
+
+    vecs = PrepareVectors(cfg, model_load=True)
     # embeddings = vecs.getVectors(7, cache_enable=False)
     embeddings = vecs.getVectors(1000, cache_enable=False)
     print("getVectors", embeddings)

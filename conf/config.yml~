@@ -1,0 +1,29 @@
+[cache]
+top_dir = "CacheStorage"
+root = "defaultCache"
+#model_filename = "model_rwkv_gutenberg"
+#main_filename = "rwkv_test004"
+#pd_filename = "rwkv_pd_test001"
+# pd_filename = "rwkv_pd_test002"
+
+# モデルを変えてみる実験用 2024/03/12 19:04
+#main_filename = "rwkv-4-world-7b-test01"
+#pd_filename = "rwkv-4-world-7b-pd-test01"
+
+# キャッシュが壊れた気がするのでやり直してみる 2024/03/14 18:42
+model_filename = "rwkv-4-world-7b-model-test04"
+main_filename = "rwkv-4-world-7b-test04"
+pd_filename = "rwkv-4-world-7b-pd-test04"
+
+[io]
+input_filename_original = "embedding-data.parquet" # original
+input_filename_finetuned = "ft-embedding-data.parquet" # finetuned
+random_vectors_by_original = "random-vector-original.parquet"
+random_vectors_by_finetuned = "random-vector-finetuned.parquet"
+#language_model = "sentence-transformers/all-MiniLM-L6-v2"
+#embedding_vector_dimension = 384
+language_model = "Alibaba-NLP/gte-Qwen2-7B-instruct"
+embedding_vector_dimension = 3584
+input_model = ["glue", "stsb"]
+
+

@@ -17,6 +17,9 @@ aiohttp==3.9.5
     # via fsspec
 aiosignal==1.3.1
     # via aiohttp
+antlr4-python3-runtime==4.9.3
+    # via hydra-core
+    # via omegaconf
 asttokens==2.4.1
     # via stack-data
 attrs==23.2.0
@@ -77,6 +80,8 @@ huggingface-hub==0.24.2
     # via sentence-transformers
     # via tokenizers
     # via transformers
+hydra-core==1.3.2
+    # via llmembeddinganalysis-3rd
 idna==3.7
     # via requests
     # via yarl
@@ -171,10 +176,13 @@ nvidia-nvjitlink-cu12==12.5.82
     # via nvidia-cusparse-cu12
 nvidia-nvtx-cu12==12.1.105
     # via torch
+omegaconf==2.3.0
+    # via hydra-core
 packaging==24.1
     # via accelerate
     # via datasets
     # via huggingface-hub
+    # via hydra-core
     # via matplotlib
     # via plotly
     # via pooch
@@ -238,6 +246,7 @@ pyyaml==6.0.1
     # via accelerate
     # via datasets
     # via huggingface-hub
+    # via omegaconf
     # via transformers
 regex==2024.7.24
     # via transformers
