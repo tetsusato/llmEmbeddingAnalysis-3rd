@@ -1,0 +1,10 @@
+# io group
+model_dir: model_outputs/qwen2
+input_filename: ${io.model_dir}/embedding-data.parquet
+random_vectors_filename: "random-vectors.parquet"
+language_model: "Alibaba-NLP/gte-Qwen2-7B-instruct"
+revision: "f47e3b5071bf9902456c6cbf9b48b59994689ac0"
+embedding_vector_dimension: 3584
+input_model: ["glue", "stsb"]
+
+
