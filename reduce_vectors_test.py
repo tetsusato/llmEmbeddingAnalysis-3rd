@@ -17,6 +17,10 @@ import optuna
 from dataclasses import dataclass
 from typing import Callable
 from multi_vector_representation import MultiVectorRepresentation
+import hydra
+from hydra import compose, initialize
+from omegaconf import DictConfig, OmegaConf
+
 
 config.fileConfig("logging.conf", disable_existing_loggers = False)
 
@@ -26,6 +30,7 @@ logger = logging.getLogger(__name__)
 class ReduceVectors():
 
     def __init__(self,
+                 cfg: DictConfig,
                  time_delay,
                  stride,
 #                 reduce_func: Callable[[pl.dataframe,
@@ -39,6 +44,7 @@ class ReduceVectors():
 
                  emb_dim = None):
         logger.debug("__init__")
+        self.cfg = cfg
         #reduce_func_array = [self.reduce_vector_sampling,
         #                     self.reduce_vector_takensembedding]
         
@@ -285,7 +291,7 @@ class ReduceVectors():
 
         # PD同士の距離を計算する
         distance = []
-        pdw = PersistenceDiagramWrapper()
+        pdw = PersistenceDiagramWrapper(self.cfg)
         for (i, (bd1, bd2, label)) in enumerate(zip(bdlist1, bdlist2, labels)):
             logger.debug(f"bd1={bd1}")
             logger.debug(f"bd2={bd2}")
@@ -545,6 +551,12 @@ class ReduceVectors():
 
 def objective_tda(trial: optuna.trial.Trial):
 
+    with initialize(version_base=None, config_path="conf", job_name=__file__):
+        #cfg = compose(config_name="qwen2")
+        #cfg = compose(config_name="sentence-transformes")
+        cfg = compose(config_name="config.yaml", overrides=["+io=qwen2", "hydra.job.chdir=True", "hydra.run.dir=./outputtest"], return_hydra_config=True)
+    logger.info(f"cfg={OmegaConf.to_yaml(cfg)}")
+
     # ハイパーパラメータの準備
     time_delay = trial.suggest_int("time_delay", 1, 16)
     stride = trial.suggest_int("stride", 1, 16)
@@ -558,14 +570,14 @@ def objective_tda(trial: optuna.trial.Trial):
 
     # 準備されたハイパーパラメータで一連の処理を実行
     # initの中でハイパーパラメータがインスタンス変数に入る
-    rv = ReduceVectors(time_delay=time_delay,
+    rv = ReduceVectors(cfg,
+                       time_delay=time_delay,
                        stride=stride,
     #                   reduce_func_index=reduce_func_index
     # この時点では埋め込みベクトルの次元が分からないので，mvrを初期化できない
     #                   reduce_func=getattr(mvr, reduce_func)
                        )
-    #pv = PrepareVectors("finetuned")
-    pv = PrepareVectors("original")
+    pv = PrepareVectors(cfg)
     vec = pv.getVectors(num_rows)
     embedding_example = vec["embedding1"].to_numpy()
     embedding_dimension = embedding_example.shape[1]
@@ -574,7 +586,7 @@ def objective_tda(trial: optuna.trial.Trial):
                                         n=embedding_dimension - 3, # 適当
                                         dimension=3)        
     rv.set_reduce_func(getattr(mvr, reduce_func))
-    results, corr, pdlist1, pdlist2 = rv.proc(vec, sample_idx)
+    results, corr, pdlist1, pdlist2 = rv.proc_tda(vec, sample_idx)
     logger.info(f"results in objective_tda={results}")
     logger.info(f"corr in objective_tda={corr}")
     pearson = corr.select("pearson").head().item()

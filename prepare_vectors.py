@@ -10,8 +10,8 @@ import polars as pl
 import argparse
 import hydra
 from hydra import compose, initialize
-from omegaconf import DictConfig
-
+from omegaconf import DictConfig, OmegaConf
+import json
 
 from logging import config
 import logging
@@ -37,10 +37,13 @@ class PrepareVectors():
     embedeing_vector_dimension = params.config["io"]["embedding_vector_dimension"]
     """
     def __init__(self, cfg: DictConfig, model_load=True):
+        #print(json.dumps(cfg.__str__))
+        print(cfg.__str__)
         self.input_model = cfg.io.input_model
         self.input_filename = cfg.io.input_filename
         self.random_vectors_filename = cfg.io.random_vectors_filename
         self.language_model = cfg.io.language_model
+        self.revision = cfg.io.revision
         self.embedding_vector_dimension = cfg.io.embedding_vector_dimension
         #if os.path.isfile(self.input_data_filename):
         #    return
@@ -52,25 +55,28 @@ class PrepareVectors():
                                           revision=revision)
         """
         self.train_dataset = load_dataset(self.input_model[0], self.input_model[1], split="train",
-                                          revision=revision)
-        self.valid_dataset = load_dataset(self.input_model[0], self.input_model[1], split="validation",
-                                          revision=revision)
+                                          revision=self.revision, num_proc=16)
+        #self.valid_dataset = load_dataset(self.input_model[0], self.input_model[1], split="validation",
+        #                                  revision=self.revision, num_proc=16)
         self.numRows = len(self.train_dataset)
 
         # メイン処理からみて入力ファイル名なので，準備処理としては出力ファイル名
         self.output = self.input_filename
         self.random_output = self.random_vectors_filename
         if model_load:
-            self.model = SentenceTransformer(self.language_model)
+            self.model = SentenceTransformer(self.language_model,
+                                             revision=self.revision   )
             #self.model = SentenceTransformer("Alibaba-NLP/gte-Qwen2-7B-instruct")
             logger.info(f"model={self.model}")
         
         logger.debug(f"train example={self.train_dataset[0]}")
-        logger.debug(f"valid example={self.valid_dataset[0]}")
+        #logger.debug(f"valid example={self.valid_dataset[0]}")
 
     def getVectors(self,
                    num,
-                   cache_enable = True):
+                   cache_enable = True,
+                   enable_multi_processing = True
+                  ):
         """
             self.modelの内容に基づくモデルを使い，
             self.input_modelの入力データから，
@@ -112,36 +118,72 @@ class PrepareVectors():
                          )
         logger.debug(f"df={df}")
         #for i in range(self.numRows):
-        for i in range(num):
-            sentence1 = self.train_dataset[i]['sentence1']
-            sentence2 = self.train_dataset[i]['sentence2']
-            label = self.train_dataset[i]['label']
-            embedding1 = self.model.encode(sentence1)
-            logger.debug(f"embedding1={embedding1}")
-            logger.debug(f"len embedding1={len(embedding1)}")
-            embedding2 = self.model.encode(sentence2)
-            row = pl.DataFrame(
+        if enable_multi_processing:
+            sentence1 = self.train_dataset[0:num]['sentence1']
+            sentence2 = self.train_dataset[0:num]['sentence2']
+            label = self.train_dataset[0:num]['label']
+            pool = self.model.start_multi_process_pool()
+            embedding1 = self.model.encode_multi_process(sentence1,
+                                                             pool)
+            embedding2 = self.model.encode_multi_process(sentence2,
+                                                             pool)
+            self.model.stop_multi_process_pool(pool)
+            embsize = len(embedding1[0])
+            df = pl.DataFrame(
                     {
                         "sentence1": sentence1,
-                        "embedding1": [embedding1],
+                        "embedding1": embedding1.tolist(),
                         "sentence2": sentence2,
-                        "embedding2": [embedding2],
+                        "embedding2": embedding2.tolist(),
                         "label": label
                     },
                     schema=
                     [
                         ("sentence1", pl.String),
-                        ("embedding1", pl.Array(pl.Float64, len(embedding1))),
+                        ("embedding1", pl.Array(pl.Float64, embsize)),
                         ("sentence2", pl.String),
-                        ("embedding2", pl.Array(pl.Float64, len(embedding2))),
+                        ("embedding2", pl.Array(pl.Float64, embsize)),
                         ("label", pl.Float64),
                     ]
 
                 )
-            logger.debug(f"row={row}")
-            df = df.vstack(row)
-        logger.debug(f"df={df}")
-        print(f"df={df}")
+
+            logger.debug(f"df={df}")
+        else:
+            for i in range(num):
+                sentence1 = self.train_dataset[i]['sentence1']
+                sentence2 = self.train_dataset[i]['sentence2']
+                label = self.train_dataset[i]['label']
+                embedding1 = self.model.encode(sentence1)
+                embedding2 = self.model.encode(sentence2)
+                row = pl.DataFrame(
+                        {
+                            "sentence1": sentence1,
+                            "embedding1": [embedding1],
+                            "sentence2": sentence2,
+                            "embedding2": [embedding2],
+                            "label": label
+                        },
+                        schema=
+                        [
+                            ("sentence1", pl.String),
+                            ("embedding1", pl.Array(pl.Float64, len(embedding1))),
+                            ("sentence2", pl.String),
+                            ("embedding2", pl.Array(pl.Float64, len(embedding2))),
+                            ("label", pl.Float64),
+                        ]
+
+                    )
+                logger.debug(f"row={row}")
+                df = df.vstack(row)
+
+        #print(f"df={df}")
+        output_dir = os.path.splitext(os.path.dirname(self.output))[0]
+        print(f"output_dir={output_dir}")
+        # ディレクトリが存在しない場合は作成
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+    
         df.write_parquet(self.output)
         #return df.write_parquet(self.output)
         return df
@@ -272,14 +314,18 @@ class PrepareVectors():
                 describedf = pd.concat([describedf, df])
         return describedf
 
+"""
 @hydra.main(config_name="config", version_base=None, config_path="conf")
 def load_config(cfg: DictConfig) -> DictConfig:
     return cfg
-
+"""
 if __name__ == "__main__":
-    with initialize(version_base=None, config_path="conf"):
-        cfg = compose(config_name="config")
-    print(f"cfg={cfg}")
+    with initialize(version_base=None, config_path="conf", job_name=__file__):
+        #cfg = compose(config_name="qwen2")
+        #cfg = compose(config_name="sentence-transformes")
+        cfg = compose(config_name="config.yaml", overrides=["+io=qwen2", "hydra.job.chdir=True", "hydra.run.dir=./outputtest"], return_hydra_config=True)
+    logger.info(f"cfg={OmegaConf.to_yaml(cfg)}")
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--mode",
@@ -288,16 +334,17 @@ if __name__ == "__main__":
         help="original: original model, finetuned: fine-tuned model"
         )
     opt = parser.parse_args()
+    """
 
     vecs = PrepareVectors(cfg, model_load=True)
     # embeddings = vecs.getVectors(7, cache_enable=False)
-    embeddings = vecs.getVectors(1000, cache_enable=False)
+    embeddings = vecs.getVectors(1000, cache_enable=False, enable_multi_processing=True)
     print("getVectors", embeddings)
     sample_idx = [0, 6]
     emb1 = embeddings.select("embedding1")[sample_idx].to_numpy()[:, 0]
     emb2 = embeddings.select("embedding2")[sample_idx].to_numpy()[:, 0]
     print("emb1 shape=", emb1.shape)
-    print("emb1=", emb1)
+    #print("emb1=", emb1)
     dif = np.abs(emb1-emb2)
     rel_tol = 1e-1
     #idx = np.where(dif <= threshhold)[0]

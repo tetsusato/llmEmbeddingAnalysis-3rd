@@ -5,6 +5,9 @@ import importlib
 
 #from cache.cache import Cache
 from params import Params
+import hydra
+from hydra import compose, initialize
+from omegaconf import DictConfig, OmegaConf
 
 
 import logging
@@ -23,11 +26,13 @@ from scipy.spatial import distance_matrix
 
 class PersistenceDiagramWrapper():
 
-    def __init__(self):
+    def __init__(self, cfg: DictConfig):
+        """
         params = Params("config.toml")
         self. filename = params.cache_pd_filename
-
-        self.cache_prefix = "PersistenceDiagramWrapper"
+        """
+        self.cache_prefix = cfg.cache.pd.prefix
+        self.filename = cfg.cache.pd.filename
         
     def _getPd(self, emb, filename, read_cache_enable=True, write_cache_enable=True,
                force_dim=False,

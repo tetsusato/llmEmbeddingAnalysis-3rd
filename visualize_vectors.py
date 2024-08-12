@@ -11,6 +11,12 @@ import numpy as np
 import argparse
 import textwrap
 from params import Params
+
+import hydra
+from hydra import compose, initialize
+from omegaconf import DictConfig, OmegaConf
+
+
 from logging import config
 import logging
 config.fileConfig("logging.conf", disable_existing_loggers = False)
@@ -22,19 +28,19 @@ class VisualizeVectors():
         VisualizeVectors(mode)
              mode: "original" or "finetuned"
     """
+    """
     params = Params("config.toml")
     # 埋め込みベクトルのデータ
     input_data_filename_original = params.config["io"]["input_filename_original"]
     input_data_filename_finetuned = params.config["io"]["input_filename_finetuned"]
-    def __init__(self, mode):
+    """
+    
+    def __init__(self, cfg: DictConfig):
         """
-            modeに応じた埋め込みベクトルのデータフレームを返す
+            cfgに応じた埋め込みベクトルのデータフレームを返す
         """
-        # 埋め込みベクトルのデータ
-        if mode == "original":
-            self.df = pl.read_parquet(self.input_data_filename_original)
-        elif mode == "finetuned":
-            self.df = pl.read_parquet(self.input_data_filename_finetuned)
+        self.input_filename = cfg.io.input_filename
+        self.df = pl.read_parquet(self.input_filename)
 
 def euclidean_distance(vecs):
     """
@@ -86,16 +92,12 @@ def plot(algo, vec1, vec2, label):
     plt.show()
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--mode",
-        type=str,
-        default="original",
-        help="original: original model, finetuned: fine-tuned model"
-        )
-    opt = parser.parse_args()
-    mode = opt.mode
-    vv = VisualizeVectors(mode)
+    with initialize(version_base=None, config_path="conf", job_name=__file__):
+        #cfg = compose(config_name="qwen2")
+        #cfg = compose(config_name="sentence-transformes")
+        cfg = compose(config_name="config.yaml", overrides=["+io=qwen2", "hydra.job.chdir=True", "hydra.run.dir=./outputtest"], return_hydra_config=True)
+    logger.info(f"cfg={OmegaConf.to_yaml(cfg)}")
+    vv = VisualizeVectors(cfg)
     vecs = vv.df
     print("len(vecs)=", len(vecs))
     #numeric_vecs = vecs.select("embedding1", "embedding2")

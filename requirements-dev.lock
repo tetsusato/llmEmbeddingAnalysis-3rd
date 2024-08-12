@@ -17,6 +17,8 @@ aiohttp==3.9.5
     # via fsspec
 aiosignal==1.3.1
     # via aiohttp
+alembic==1.13.2
+    # via optuna
 antlr4-python3-runtime==4.9.3
     # via hydra-core
     # via omegaconf
@@ -30,6 +32,8 @@ certifi==2024.7.4
     # via requests
 charset-normalizer==3.3.2
     # via requests
+colorlog==6.8.2
+    # via optuna
 comm==0.2.2
     # via ipywidgets
 contourpy==1.2.1
@@ -70,6 +74,8 @@ giotto-ph==0.2.4
     # via giotto-tda
 giotto-tda==0.6.2
     # via llmembeddinganalysis-3rd
+greenlet==3.0.3
+    # via sqlalchemy
 homcloud==4.4.1
     # via llmembeddinganalysis-3rd
 hopcroftkarp==1.2.5
@@ -105,8 +111,11 @@ jupyterlab-widgets==3.0.11
     # via ipywidgets
 kiwisolver==1.4.5
     # via matplotlib
+mako==1.3.5
+    # via alembic
 markupsafe==2.1.5
     # via jinja2
+    # via mako
 matplotlib==3.9.0
     # via homcloud
     # via llmembeddinganalysis-3rd
@@ -137,6 +146,7 @@ numpy==1.26.1
     # via imageio
     # via llmembeddinganalysis-3rd
     # via matplotlib
+    # via optuna
     # via pandas
     # via persim
     # via pyarrow
@@ -178,12 +188,15 @@ nvidia-nvtx-cu12==12.1.105
     # via torch
 omegaconf==2.3.0
     # via hydra-core
+optuna==3.6.1
+    # via llmembeddinganalysis-3rd
 packaging==24.1
     # via accelerate
     # via datasets
     # via huggingface-hub
     # via hydra-core
     # via matplotlib
+    # via optuna
     # via plotly
     # via pooch
     # via transformers
@@ -247,6 +260,7 @@ pyyaml==6.0.1
     # via datasets
     # via huggingface-hub
     # via omegaconf
+    # via optuna
     # via transformers
 regex==2024.7.24
     # via transformers
@@ -286,6 +300,9 @@ sentence-transformers==3.0.1
 six==1.16.0
     # via asttokens
     # via python-dateutil
+sqlalchemy==2.0.32
+    # via alembic
+    # via optuna
 stack-data==0.6.3
     # via ipython
 sympy==1.13.1
@@ -308,6 +325,7 @@ tqdm==4.66.4
     # via datasets
     # via huggingface-hub
     # via llmembeddinganalysis-3rd
+    # via optuna
     # via sentence-transformers
     # via transformers
 traitlets==5.14.3
@@ -318,8 +336,10 @@ traitlets==5.14.3
 transformers==4.43.3
     # via sentence-transformers
 typing-extensions==4.12.2
+    # via alembic
     # via huggingface-hub
     # via pyvista
+    # via sqlalchemy
     # via torch
 tzdata==2024.1
     # via pandas
