@@ -26,16 +26,11 @@ class TestCacheModule(unittest.TestCase):
     filename = "test"
     #cache = Cache(vec, filename)
     cache = Cache(filename)
-    cache.delete(".*")
-    cache.clear()
+    cache.deleteCache(".*")
 
     def test_init(self):
         self.assertEqual(self.cache.__class__.__name__, "Cache")
 
-    def test_clear(self):
-        self.assertEqual(self.cache.__class__.__name__, "Cache")
-        self.cache.clear()
-        
     def test_insert(self):
         vec1 = vec2d("example1")
         self.cache.set("item1", vec1)
@@ -45,38 +40,19 @@ class TestCacheModule(unittest.TestCase):
         self.assertEqual(val, vec2d("example1"))
         val = self.cache.get("item2")
         self.assertEqual(val, vec2d("example2"))
-        list = self.cache.listKeys(".*", returnFullPath=True)
-        self.assertEqual(len(list), 2)
-        self.assertEqual(list[0], "//defaultCache/item1")
-        self.assertEqual(list[1], "//defaultCache/item2")
-        list = self.cache.listKeysVals(".*", returnFullPath=True)
-        self.assertEqual(list[0][0], "//defaultCache/item1")
-        self.assertEqual(list[0][1], vec2d("example1"))
-        self.assertEqual(list[1][0], "//defaultCache/item2")
-        self.assertEqual(list[1][1], vec2d("example2"))
         list = self.cache.listKeys(".*")
-        self.assertEqual(len(list), 2)
-        self.assertEqual(list[0], "item1")
-        self.assertEqual(list[1], "item2")
+        self.assertEqual(list[0], "defaultCache:item1")
+        self.assertEqual(list[1], "defaultCache:item2")
         list = self.cache.listKeysVals(".*")
-        self.assertEqual(list[0][0], "item1")
+        self.assertEqual(list[0][0], "defaultCache:item1")
         self.assertEqual(list[0][1], vec2d("example1"))
-        self.assertEqual(list[1][0], "item2")
+        self.assertEqual(list[1][0], "defaultCache:item2")
         self.assertEqual(list[1][1], vec2d("example2"))
 
-        count = self.cache.delete("item1")
-        self.assertEqual(count, 1)
-        val = self.cache.get("item1")
-        self.assertEqual(val, None)
-        list = self.cache.listKeys(".*")
-        self.assertEqual(len(list), 1)
-        self.assertEqual(list[0], "item2")
-        
-    """
     def test_insert_with_prefix(self):
         
         cache = Cache("prefix_insert_test", prefix="test")
-        cache.delete
+        cache.deleteCache
         # access time prefixing
         vec1 = vec2d("example1")
         cache.set("item1", vec1)
@@ -124,22 +100,33 @@ class TestCacheModule(unittest.TestCase):
         print(list[2])
         print(list[2].__class__)
         print(isinstance(list[2], str))                
-    """
 
     def test_arrangeKey(self):
         cache = Cache("test") # デフォルトprefixが無いケース
         key0 = "item"
         key = cache.arrangeKey(key0)
-        self.assertEqual(key, f"//defaultCache/{key0}") # 何の指定も無ければdefaultCacheがつく
+        self.assertEqual(key, f"defaultCache:{key0}") # 何の指定も無ければdefaultCacheがつく
+        key = cache.arrangeKey(key0, mode="emb")
+        self.assertEqual(key, f"defaultCache:mode=emb:{key0}") # modeがあれば追加
         key = cache.arrangeKey(key0, prefix="dev")
-        self.assertEqual(key, f"//dev/{key0}") # prefixがあれば追加
+        self.assertEqual(key, f"dev:{key0}") # prefixがあれば追加
+        key = cache.arrangeKey(key0, mode="emb", prefix="dev")
+        self.assertEqual(key, f"dev:mode=emb:{key0}") # modeとprefixがあれば追加
         cache = Cache("test", prefix="stage") # デフォルトprefixがあるケース
         key = cache.arrangeKey(key0)
-        self.assertEqual(key, f"//stage/{key0}") # 何の指定も無ければdefaultがつく
-        key = cache.arrangeKey(key0, tag="all", prefix="dev")
-        self.assertEqual(key, f"/all/dev/{key0}") # tag/prefix指定
+        self.assertEqual(key, f"stage:{key0}") # 何の指定も無ければdefaultがつく
+        key = cache.arrangeKey(key0, mode="emb")
+        self.assertEqual(key, f"stage:mode=emb:{key0}") # 何の指定も無ければdefaultがつく
+        key = cache.arrangeKey(key0, prefix="dev")
+        self.assertEqual(key, f"dev:{key0}") # prefix指定は上書き
+        key = cache.arrangeKey(key0, mode="emb", prefix="dev")
+        self.assertEqual(key, f"dev:mode=emb:{key0}") # prefixで上書きされてmodeもつくケース
 
-
+        key0 = torch.tensor([1, 2])
+        print(key0)
+        key = cache.arrangeKey(key0, mode="emb")
+        print(key)
+        print(key.__class__)
         
         
 if __name__ == '__main__':
