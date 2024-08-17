@@ -73,7 +73,7 @@ class PrepareVectors():
         #logger.debug(f"valid example={self.valid_dataset[0]}")
 
     def getVectors(self,
-                   num,
+                   num = -1,
                    cache_enable = True,
                    enable_multi_processing = True
                   ):
@@ -95,7 +95,16 @@ class PrepareVectors():
                           ]
                          )
         """
-        
+        output_dir = os.path.splitext(os.path.dirname(self.output))[0]        
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+        if os.path.exists(self.output):
+            logger.info(f"getVectors' results has been detected. load from ({self.output})")
+            df = pl.read_parquet(self.output)
+            logger.info(f"read df={df}")
+            return df
+        if num == -1:
+            num = self.numRows
         #if os.path.isfile(self.input_data_filename):
         #    return
         if cache_enable:

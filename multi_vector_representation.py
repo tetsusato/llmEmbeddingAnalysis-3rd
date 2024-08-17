@@ -15,7 +15,7 @@ class MultiVectorRepresentation:
         self.select_indexes = [np.random.choice(embedding_dim,
                                                size=dimension,
                                                replace=False)  for i in range(n)]
-        print("select_indexes=", self.select_indexes)
+        #print("select_indexes=", self.select_indexes)
         
     def choice(self,
                src: np.ndarray) -> np.ndarray:
@@ -25,7 +25,6 @@ class MultiVectorRepresentation:
         return:
             [self.n, dimension]
         """
-        print("src=", src)
         ret = [[src[i] for i in self.select_indexes[j]] for j in range(self.n)]
         return ret
         
@@ -64,12 +63,12 @@ class MultiVectorRepresentation:
                 #print("=>", sampled)
                 dst[j] = sampled
             """
-            print("src=", src)
+            #print("src=", src)
             dst = self.choice(src)
-            print("new dst=", dst)
+            #print("new dst=", dst)
             npveclist[i] = dst
 
-        print("retrun=", npveclist)
+        #print("retrun=", npveclist)
         return npveclist
     def reduce_vector_takensembedding(self,
                                       embeddings: pl.dataframe,

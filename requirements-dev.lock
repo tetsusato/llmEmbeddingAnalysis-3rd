@@ -43,7 +43,7 @@ cycler==0.12.1
 cython==3.0.10
     # via homcloud
     # via ripser
-datasets==2.19.2
+datasets==2.21.0
     # via llmembeddinganalysis-3rd
 decorator==5.1.1
     # via ipython
@@ -61,6 +61,7 @@ filelock==3.15.4
     # via huggingface-hub
     # via torch
     # via transformers
+    # via triton
 fonttools==4.53.1
     # via matplotlib
 frozenlist==1.4.1
@@ -134,6 +135,8 @@ multidict==6.0.5
     # via yarl
 multiprocess==0.70.16
     # via datasets
+mysqlclient==2.2.4
+    # via llmembeddinganalysis-3rd
 networkx==3.3
     # via torch
 numpy==1.26.1
@@ -168,7 +171,7 @@ nvidia-cuda-nvrtc-cu12==12.1.105
     # via torch
 nvidia-cuda-runtime-cu12==12.1.105
     # via torch
-nvidia-cudnn-cu12==8.9.2.26
+nvidia-cudnn-cu12==9.1.0.70
     # via torch
 nvidia-cufft-cu12==11.0.2.54
     # via torch
@@ -197,6 +200,7 @@ packaging==24.1
     # via hydra-core
     # via matplotlib
     # via optuna
+    # via pipdeptree
     # via plotly
     # via pooch
     # via transformers
@@ -217,6 +221,9 @@ pillow==10.4.0
     # via pyvista
     # via sentence-transformers
 pip==24.1.2
+    # via llmembeddinganalysis-3rd
+    # via pipdeptree
+pipdeptree==2.23.1
     # via llmembeddinganalysis-3rd
 platformdirs==4.2.2
     # via pooch
@@ -239,8 +246,6 @@ pulp==2.9.0
 pure-eval==0.2.3
     # via stack-data
 pyarrow==17.0.0
-    # via datasets
-pyarrow-hotfix==0.6
     # via datasets
 pyflagser==0.4.7
     # via giotto-tda
@@ -297,6 +302,8 @@ seaborn==0.13.2
     # via llmembeddinganalysis-3rd
 sentence-transformers==3.0.1
     # via llmembeddinganalysis-3rd
+setuptools==72.2.0
+    # via torch
 six==1.16.0
     # via asttokens
     # via python-dateutil
@@ -317,11 +324,11 @@ tokenizers==0.19.1
     # via transformers
 toml==0.10.2
     # via llmembeddinganalysis-3rd
-torch==2.3.1
+torch==2.4.0
     # via accelerate
     # via llmembeddinganalysis-3rd
     # via sentence-transformers
-tqdm==4.66.4
+tqdm==4.66.5
     # via datasets
     # via huggingface-hub
     # via llmembeddinganalysis-3rd
@@ -335,6 +342,8 @@ traitlets==5.14.3
     # via matplotlib-inline
 transformers==4.43.3
     # via sentence-transformers
+triton==3.0.0
+    # via torch
 typing-extensions==4.12.2
     # via alembic
     # via huggingface-hub

@@ -12,3 +12,10 @@ cache:
     pd:
         prefix: "PersistenceDiagram"
         filename: "pd_test01"
+
+hyper_parameter:
+    tda:
+        time_delay_low: 1
+        time_delay_high: 2
+        stride_low: 1
+        stride_high: 2

@@ -20,12 +20,13 @@ from multi_vector_representation import MultiVectorRepresentation
 import hydra
 from hydra import compose, initialize
 from omegaconf import DictConfig, OmegaConf
-
+import os
+import time
 
 config.fileConfig("logging.conf", disable_existing_loggers = False)
 
 logger = logging.getLogger(__name__)
-
+progress = logging.getLogger("progress")
 
 class ReduceVectors():
 
@@ -164,6 +165,9 @@ class ReduceVectors():
 
 
             filename = f"pointcloud.pdgm"
+            ns = time.time_ns()
+            id = ns - int(ns / 1000)*1000
+            filename = f"pointcloud-{id}.pdgm"
             pd = hc.PDList.from_alpha_filtration(fvecs, save_to=filename,
                                                   save_boundary_map=True)
             pdlist.append(pd)
@@ -548,85 +552,90 @@ class ReduceVectors():
             ax.set_xlim([xmin, xmax])
             ax.set_ylim([ymin, ymax])
         fig.show()
+def objective_tda(cfg: DictConfig):
+    def objective(trial: optuna.trial.Trial):
 
-def objective_tda(trial: optuna.trial.Trial):
 
-    with initialize(version_base=None, config_path="conf", job_name=__file__):
-        #cfg = compose(config_name="qwen2")
-        #cfg = compose(config_name="sentence-transformes")
-        cfg = compose(config_name="config.yaml", overrides=["+io=qwen2", "hydra.job.chdir=True", "hydra.run.dir=./outputtest"], return_hydra_config=True)
-    logger.info(f"cfg={OmegaConf.to_yaml(cfg)}")
+        # ハイパーパラメータの準備
+        #time_delay = trial.suggest_int("time_delay", 1, 16)
+        time_delay = trial.suggest_int("time_delay",
+                                       cfg.hyper_parameter.tda.time_delay_low,
+                                       cfg.hyper_parameter.tda.time_delay_high)
+        #stride = trial.suggest_int("stride", 1, 16)
+        stride = trial.suggest_int("stride",
+                                   cfg.hyper_parameter.tda.stride_low,
+                                   cfg.hyper_parameter.tda.stride_high)
+        number = trial.params
+        #reduce_func_index = trial.suggest_int("reduce_func_index", 0, 1)
+        reduce_func = trial.suggest_categorical("reduce_func",
+                                        ["reduce_vector_sampling",
+                                         "reduce_vector_takensembedding"])
 
-    # ハイパーパラメータの準備
-    time_delay = trial.suggest_int("time_delay", 1, 16)
-    stride = trial.suggest_int("stride", 1, 16)
-    number = trial.params
-    #reduce_func_index = trial.suggest_int("reduce_func_index", 0, 1)
-    reduce_func = trial.suggest_categorical("reduce_func",
-                                    ["reduce_vector_sampling",
-                                     "reduce_vector_takensembedding"])
+        progress.info(f"delay={time_delay}, stride={stride}, reduce_func={reduce_func}")
 
-    logger.info(f"delay={time_delay}, stride={stride}, reduce_func={reduce_func}")
+        # 準備されたハイパーパラメータで一連の処理を実行
+        # initの中でハイパーパラメータがインスタンス変数に入る
+        rv = ReduceVectors(cfg,
+                           time_delay=time_delay,
+                           stride=stride,
+        #                   reduce_func_index=reduce_func_index
+        # この時点では埋め込みベクトルの次元が分からないので，mvrを初期化できない
+        #                   reduce_func=getattr(mvr, reduce_func)
+                           )
+        #pv = PrepareVectors(cfg)
+        #vec = pv.getVectors()
+        filename = cfg.io.input_filename
+        vec = pl.read_parquet(filename)
+        embedding_example = vec["embedding1"].to_numpy()
+        #logger.info(f"emb1={embedding_example}")
+        embedding_dimension = embedding_example.shape[1]
+        sample_number = embedding_example.shape[0]
+        mvr = MultiVectorRepresentation(embedding_dim=embedding_dimension,
+                                            n=embedding_dimension - 3, # 適当
+                                            dimension=3)        
+        rv.set_reduce_func(getattr(mvr, reduce_func))
+        results, corr, pdlist1, pdlist2 = rv.proc_tda(vec, sample_idx)
+        #logger.info(f"results in objective_tda={results}")
+        #logger.info(f"corr in objective_tda={corr}")
+        pearson = corr.select("pearson").head().item()
+        spearman = corr.select("spearman").head().item()
+        #print(f"results_df={results_df}")
 
-    # 準備されたハイパーパラメータで一連の処理を実行
-    # initの中でハイパーパラメータがインスタンス変数に入る
-    rv = ReduceVectors(cfg,
-                       time_delay=time_delay,
-                       stride=stride,
-    #                   reduce_func_index=reduce_func_index
-    # この時点では埋め込みベクトルの次元が分からないので，mvrを初期化できない
-    #                   reduce_func=getattr(mvr, reduce_func)
-                       )
-    pv = PrepareVectors(cfg)
-    vec = pv.getVectors(num_rows)
-    embedding_example = vec["embedding1"].to_numpy()
-    embedding_dimension = embedding_example.shape[1]
-    sample_number = embedding_example.shape[0]
-    mvr = MultiVectorRepresentation(embedding_dim=embedding_dimension,
-                                        n=embedding_dimension - 3, # 適当
-                                        dimension=3)        
-    rv.set_reduce_func(getattr(mvr, reduce_func))
-    results, corr, pdlist1, pdlist2 = rv.proc_tda(vec, sample_idx)
-    logger.info(f"results in objective_tda={results}")
-    logger.info(f"corr in objective_tda={corr}")
-    pearson = corr.select("pearson").head().item()
-    spearman = corr.select("spearman").head().item()
-    #print(f"results_df={results_df}")
-    
-    return pearson, spearman
+        return pearson, spearman
+    return objective
+def objective_tsne(cfg: DictConfig):
+    def objective(trial: optuna.trial.Trial):
+        results_df = pl.DataFrame(
+                schema={
+                        "perplexity": pl.Int64,
+                        "pearson": pl.Float64,
+                        "spearman": pl.Float64
+                    }
+            )
+        perplexity = trial.suggest_int("perplexity",
+                                       1,
+                                       8)
+        #reduce_func_index = trial.suggest_int("reduce_func_index", 0, 1)
+        reduce_func = trial.suggest_categorical("reduce_func",
+                                        ["reduce_vector_takensembedding",
+                                         "reduce_vector_takensembedding"])
+        #for perplexity in [1, 2, 4, 8]: # should be less than sample=10
+        logger.info(f"perplexity={perplexity}")
+        mvr = MultiVectorRepresentation()
+        #reduce_func_index = 1 # fixed for debug as takens embeddings
+        rv = ReduceVectors(time_delay=1,
+                           stride=1,
+    #                       reduce_func_index=reduce_func_index)
+                           reduce_func=getattr(mvr, reduce_func))    
+        pv = PrepareVectors("original")
+        vec = pv.getVectors(num_rows)
+        results, corr, tsne_vecs = rv.proc_tsne(vec, sample_idx, perplexity)
+        pearson = corr.select("pearson").head().item()
+        spearman = corr.select("spearman").head().item()
 
-def objective_tsne(trial: optuna.trial.Trial):
-    results_df = pl.DataFrame(
-            schema={
-                    "perplexity": pl.Int64,
-                    "pearson": pl.Float64,
-                    "spearman": pl.Float64
-                }
-        )
-    perplexity = trial.suggest_int("perplexity",
-                                   1,
-                                   8)
-    #reduce_func_index = trial.suggest_int("reduce_func_index", 0, 1)
-    reduce_func = trial.suggest_categorical("reduce_func",
-                                    ["reduce_vector_takensembedding",
-                                     "reduce_vector_takensembedding"])
-    #for perplexity in [1, 2, 4, 8]: # should be less than sample=10
-    logger.info(f"perplexity={perplexity}")
-    mvr = MultiVectorRepresentation()
-    #reduce_func_index = 1 # fixed for debug as takens embeddings
-    rv = ReduceVectors(time_delay=1,
-                       stride=1,
-#                       reduce_func_index=reduce_func_index)
-                       reduce_func=getattr(mvr, reduce_func))    
-    pv = PrepareVectors("original")
-    vec = pv.getVectors(num_rows)
-    results, corr, tsne_vecs = rv.proc_tsne(vec, sample_idx, perplexity)
-    pearson = corr.select("pearson").head().item()
-    spearman = corr.select("spearman").head().item()
-    
 
-    return pearson, spearman    
-
+        return pearson, spearman    
+    return objective
 
 if __name__ == "__main__":
     @dataclass(frozen=True)
@@ -634,6 +643,7 @@ if __name__ == "__main__":
         name: str
         proc: Callable[[optuna.trial.Trial], list[float]]
         hyper_params: list[str]
+    """
     mode_list = [
         Mode("tda",
              objective_tda,
@@ -654,38 +664,62 @@ if __name__ == "__main__":
              ),
         
        ]
+    """
+    mode_list = [
+        Mode("tda",
+             objective_tda,
+             ["values_0",
+              "values_1",
+              "params_stride",
+              "params_time_delay",
+              "params_reduce_func"
+              ]
+             ),
+        ]
+    with initialize(version_base=None, config_path="conf", job_name=__file__):
+        #cfg = compose(config_name="qwen2")
+        #cfg = compose(config_name="sentence-transformes")
+        #cfg = compose(config_name="config.yaml", overrides=["+io=qwen2", "hydra.job.chdir=True", "hydra.run.dir=./outputtest"], return_hydra_config=True)
+        cfg = compose(config_name="config.yaml", overrides=["+io=qwen2"], return_hydra_config=True)
+    logger.info(f"cfg={OmegaConf.to_yaml(cfg)}")
+
+    mysql_user = os.environ["OPT_USER"]
+    mysql_pass = os.environ["OPT_PASS"]
+    
     #mode = sys.argv[1]
-    num_rows = 100 # number of embedding vectors
+    #num_rows = 100 # number of embedding vectors
     
     # FIT原稿用
     sample_idx = [6, 3, 1, 4, 0]
     #"""
     #for mode in ["TDA", "TSNE"]:
     for mode in mode_list:
-        logger.info(f"########## mode={mode}")
         study_name = mode.name
         storage_name = f"sqlite:///{study_name}.db"
+        #storage_name = f"mysql://{mysql_user}:{mysql_pass}@localhost/optuna"
+        storage_name = f"mysql://{mysql_user}:{mysql_pass}@127.0.0.1/optuna"
         study = optuna.create_study(
             study_name=study_name,
             storage=storage_name,
             directions=["minimize", "minimize"],
             load_if_exists=True)
-        study.optimize(mode.proc, n_trials=30)
+        progress.info(f"study={study}")
+        study.optimize(mode.proc(cfg), n_trials=30, n_jobs=-1)
         logger.debug(f"dataframe={study.trials_dataframe()}")
         trial_with_higher_score = study.trials_dataframe().sort_values(
                                             ["values_0", "values_1"]).head(10)
         results = trial_with_higher_score[mode.hyper_params]
-        logger.info("結果発表!")
-        logger.info(results)
-        logger.info("BEST!")
-        logger.info(study.best_trials)
+        progress.info("結果発表!")
+        progress.info(results)
+        progress.info("BEST!")
+        progress.info(study.best_trials)
 
 
     # 必要なケースを可視化
     for mode in mode_list:
-        logger.info(f"########## mode={mode}")
         study_name = mode.name
         storage_name = f"sqlite:///{study_name}.db"
+        storage_name = f"mysql://{mysql_user}:{mysql_pass}@127.0.0.1/optuna"
         study = optuna.create_study(
             study_name=study_name,
             storage=storage_name,
@@ -696,10 +730,10 @@ if __name__ == "__main__":
         trial_with_higher_score = study.trials_dataframe().sort_values(
                                             ["values_0", "values_1"]).head(10)
         results = trial_with_higher_score[mode.hyper_params]
-        logger.info("結果発表!")
-        logger.info(results)
-        logger.info("BEST!")
-        logger.info(study.best_trials)
+        progress.info("結果発表!")
+        progress.info(results)
+        progress.info("BEST!")
+        progress.info(study.best_trials)
 
     # 単純にコサイン類似度のみ
     #sims = rv.pl_cosine_similarity(vec.select("embedding1")[sample_idx],
