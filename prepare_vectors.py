@@ -18,12 +18,11 @@ import logging
 config.fileConfig("logging.conf", disable_existing_loggers = False)
 
 logger = logging.getLogger(__name__)
-
+progress = logging.getLogger("progress")
 
 class PrepareVectors():
-    """
-        PrepareVectors(mode)
-            mode: "original" or "finetuned"
+    """ PrepareVectors()
+
     """
     """
     params = Params("config.toml")
@@ -37,6 +36,9 @@ class PrepareVectors():
     embedeing_vector_dimension = params.config["io"]["embedding_vector_dimension"]
     """
     def __init__(self, cfg: DictConfig, model_load=True):
+        """ __init__
+            args:
+        """
         #print(json.dumps(cfg.__str__))
         print(cfg.__str__)
         self.input_model = cfg.io.input_model
@@ -64,6 +66,7 @@ class PrepareVectors():
         self.output = self.input_filename
         self.random_output = self.random_vectors_filename
         if model_load:
+            progress.info(f"Model({self.language_model}) loading...")
             self.model = SentenceTransformer(self.language_model,
                                              revision=self.revision   )
             #self.model = SentenceTransformer("Alibaba-NLP/gte-Qwen2-7B-instruct")
@@ -77,12 +80,14 @@ class PrepareVectors():
                    cache_enable = True,
                    enable_multi_processing = True
                   ):
-        """
+        """ getVectors
             self.modelの内容に基づくモデルを使い，
             self.input_modelの入力データから，
-            numの数だけpolarsのデータフレームを返す
+            numの数だけpolarsのデータフレームを返す．-1なら，モデルによってフルに返す
             args:
-                num: int
+                num: int 返すベクトルの数
+                cache_enable: bool ファイルキャッシュを使うかどうか
+                reset: bool ファイルキャッシュを使う場合に，最初にリセットするかどうか
             return:
                 pl.DataFrame(
                           schema=
@@ -97,8 +102,10 @@ class PrepareVectors():
         """
         output_dir = os.path.splitext(os.path.dirname(self.output))[0]        
         if not os.path.exists(output_dir):
+            progress.info(f"Creating output directory({output_dir})")
             os.makedirs(output_dir)
         if os.path.exists(self.output):
+            progress.info(f"File found")
             logger.info(f"getVectors' results has been detected. load from ({self.output})")
             df = pl.read_parquet(self.output)
             logger.info(f"read df={df}")
@@ -106,12 +113,11 @@ class PrepareVectors():
         if num == -1:
             num = self.numRows
         #if os.path.isfile(self.input_data_filename):
-        #    return
-        if cache_enable:
-            if os.path.isfile(self.output):
-                df = pl.read_parquet(self.output).limit(num)
-                logger.debug(f"loaded: {df.count()} rows.")
-                return df
+        #    retukaburn
+        if os.path.isfile(self.output):
+            df = pl.read_parquet(self.output).limit(num)
+            logger.debug(f"loaded: {df.count()} rows.")
+            return df
         else:
             assert hasattr(self, 'model'), "language model should be defined"
         dim = self.embedding_vector_dimension
@@ -128,6 +134,7 @@ class PrepareVectors():
         logger.debug(f"df={df}")
         #for i in range(self.numRows):
         if enable_multi_processing:
+            progress.info(f"Prepare vectors with multi processing")
             sentence1 = self.train_dataset[0:num]['sentence1']
             sentence2 = self.train_dataset[0:num]['sentence2']
             label = self.train_dataset[0:num]['label']
@@ -159,6 +166,7 @@ class PrepareVectors():
 
             logger.debug(f"df={df}")
         else:
+            progress.info(f"Prepare vectors with sequentialnaru processing")            
             for i in range(num):
                 sentence1 = self.train_dataset[i]['sentence1']
                 sentence2 = self.train_dataset[i]['sentence2']
@@ -187,12 +195,15 @@ class PrepareVectors():
                 df = df.vstack(row)
 
         #print(f"df={df}")
+        logger.info(f"df={df}, shape={df.shape}")
         output_dir = os.path.splitext(os.path.dirname(self.output))[0]
-        print(f"output_dir={output_dir}")
+        logger.info(f"output_dir={output_dir}")
         # ディレクトリが存在しない場合は作成
         if not os.path.exists(output_dir):
+            progress.info(f"Creating output directory({output_dir})")            
             os.makedirs(output_dir)
-    
+
+        progress.info(f"Writing  output file({self.output})")    
         df.write_parquet(self.output)
         #return df.write_parquet(self.output)
         return df
@@ -332,22 +343,15 @@ if __name__ == "__main__":
     with initialize(version_base=None, config_path="conf", job_name=__file__):
         #cfg = compose(config_name="qwen2")
         #cfg = compose(config_name="sentence-transformes")
-        cfg = compose(config_name="config.yaml", overrides=["+io=qwen2", "hydra.job.chdir=True", "hydra.run.dir=./outputtest"], return_hydra_config=True)
-    logger.info(f"cfg={OmegaConf.to_yaml(cfg)}")
-    """
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--mode",
-        type=str,
-        default="original",
-        help="original: original model, finetuned: fine-tuned model"
-        )
-    opt = parser.parse_args()
-    """
-
+        cfg = compose(config_name="config.yaml",
+                      overrides=["hydra.job.chdir=True"],
+                      return_hydra_config=True
+                      )
+    logger.info(f"initial cfg=\n{OmegaConf.to_yaml(cfg)}")
     vecs = PrepareVectors(cfg, model_load=True)
     # embeddings = vecs.getVectors(7, cache_enable=False)
-    embeddings = vecs.getVectors(1000, cache_enable=False, enable_multi_processing=True)
+    #embeddings = vecs.getVectors(1000, cache_enable=False, enable_multi_processing=True)
+    embeddings = vecs.getVectors(-1, cache_enable=False, enable_multi_processing=True)
     print("getVectors", embeddings)
     sample_idx = [0, 6]
     emb1 = embeddings.select("embedding1")[sample_idx].to_numpy()[:, 0]

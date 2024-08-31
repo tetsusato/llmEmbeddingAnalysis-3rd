@@ -7,6 +7,7 @@ import time
 import torch.multiprocessing as multiprocessing
 from tqdm import tqdm
 from params import Params
+from omegaconf import DictConfig, OmegaConf
 
 config.fileConfig("logging.conf", disable_existing_loggers = False)
 
@@ -28,98 +29,66 @@ class Cache():
     key_prefix = None
     is_enable = True
     def __init__(self,
+                 cfg: DictConfig,
                  #, source_class
                  cache_filename,
                  prefix = None,
-                 cache_enable = True):
-        """
+                 reset = False
+                ):
+        """ __init__
         Args:
-        #    source_class: A class of items which is stored in a cache.
-        #                  The class should be dataclass and define
-        #                  a __repr__() method.
+            cfg: Config object. (required)
             cache_filename: A name of the file on the local storage
-                            where the item is stored.
+                            where the item is stored. (required)
  
         """
+        top_dir = cfg.cache.top_dir
+        root = cfg.cache.root
         if prefix is not None:
             self.key_prefix = prefix
         else:
-            self.key_prefix = "defaultCache"
-        logger.debug(f"Creating a cache object. key_prefix={self.key_prefix}, saves to {cache_filename}")
-        if cache_filename != "" and cache_filename is not None and cache_enable is not False:
+            #self.key_prefix = "defaultCache"
+            self.key_prefix = root
+        logger.debug(f"Creating a cache object. key_prefix={self.key_prefix}, saves to {cache_filename}, flag cache_enable={cfg.cache.enable}")
+        if cfg.cache.enable:
+            """
             filename = f"CacheStorage/" \
+                       + f"{self.key_prefix}/" \
+                       + f"{cache_filename}"
+            """
+            filename = f"{top_dir}/" \
                        + f"{self.key_prefix}/" \
                        + f"{cache_filename}"
             logger.debug(f"Cache file = {filename}")
             self.is_enable = True
             #self.db = diskcache.Cache(cache_filename)
             self.db = diskcache.Cache(filename)
+            is_reset = cfg.cache.reset
+            if reset:
+                is_reset = reset
+            if reset:
+                logger.info(f"Cache will be cleared")
+                count = self.db.clear()
+                logger.debug(f"Removed {count} items.")
         else:
             self.is_enable = False
             self.db = None
+        logger.debug(f"db={self.db}")
 
     def close(self):
         self.db.close()
 
     def getCacheKey(self, keyName,
-                  file = None,
-                  embFunc = None,
-                  simFunc = None,
-                  numTokens = None,
-                  postfunc = None,
-                  list1 = None,
-                  list2 = None,
-                  comment = None):
+                   ):
                     
         """
         keyName: 識別するための名前．基本はrequired
-        targetFile: ドキュメントのファイル名．simFuncがNoneのときはrequired
-        numTokens: ドキュメント先頭からのトークン数．postfuncがNoneならrequired
-        getEmbFunc: 埋め込みベクトル計算関数．postfuncがNoneならrequired
-        simFunc: 類似度計算関数
-
-        postfunc: simFuncのための前処理関数
-        hash1: simFuncに渡す引数のハッシュ --> hashはkey作成のためにしか使われていないからlist1でいい
-        hash2: simFuncに渡す引数のハッシュ
-
         """
-        key = ""
-        #if keyName == "emb" and embFunc == self.getHeadPersistenceDiagramEmbeddings:
-        #    raise ValueError("use getPersistenceDiagramEmbeddings")
-
-        #if keyName == "dis" and simFunc == self.BottleneckSim:
-        #    raise ValueError("use Bottleneck")
-
-        if keyName == "emb":
-            key += f"{keyName}"
-            key += f":file={file.name}"
-            key += f":embFunc={embFunc.__name__}"
-            key += f":tokens={numTokens}"
-        elif keyName == "embmat":
-            key += f"{keyName}"            
-            key += f":embFunc={embFunc.__name__}"
-            key += f":simFunc={simFunc.__name__}"
-            key += f":tokens={numTokens}"
-        elif keyName == "simmat":
-            key += f"{keyName}"
-            key += f":embFunc={embFunc.__name__}"
-            key += f":simFunc={simFunc.__name__}"
-            key += f":tokens={numTokens}"
-        elif keyName == "dis":
-            key += f"{keyName}"
-            key += f":postfunc={postfunc.__name__}"
-            key += f":simFunc={simFunc.__name__}"
-            hash1 = self.hash_algorithm(list1.tobytes()).hexdigest()
-            key += f":hash1={hash1}"
-            hash2 = self.hash_algorithm(list2.tobytes()).hexdigest()
-            key += f":hash2={hash2}"
-        if comment is not None:
-            key += f":comment={comment}"
         return key
 
     # prefixがclassの識別子で，modeがclassの中のmethodやdataの識別子？
-    def set(self, key, val, mode=None, tag=None, prefix=None):
-        key = self.arrangeKey(key, mode=mode, tag=tag, prefix=prefix)                
+    def set(self, key, val, tag=None):
+        key = self.arrangeKey(key, tag=tag)
                 
         #key = f"{self.key_prefix}:{key}"
         logger.debug(f"key={key}")
@@ -128,43 +97,25 @@ class Cache():
         self.db.set(key, val, tag=tag)
         #self.db.sync()
 
-    def arrangeKey(self, key, mode=None, tag=None, prefix=None):
+    def arrangeKey(self, key, tag=None):
         """
         Keyの修飾を計算して返す
         """
-        if self.key_prefix is not None: # コンストラクタのprefixがデフォルトで使われる
-            if prefix is None: # prefixが無ければ文句なしにデフォルト
-                if mode is None:
-                    key = f"{self.key_prefix}:{key}" # 特に指定がなければこの形式
-                else:
-                    key = f"{self.key_prefix}:mode={mode}:{key}" # modeがあれば追加
-            else: # prefixがあればこっちが優先される
-                if mode is None:
-                    key = f"{prefix}:{key}" # 特に指定がなければこの形式
-                else:
-                    key = f"{prefix}:mode={mode}:{key}" # modeがあれば追加
-        elif prefix is not None: # でおフォルトがなくてprefixの指定があれば使われる
-            if mode is None:
-                key = f"{prefix}:{key}" # modeも無ければkeyそのもの
-            else:
-                key = f"{prefix}:mode={mode}:{key}" # modeがあれば追加
-        else: # prefix指定が一切無い場合
-            if mode is None:
-                key = f"{key}" # modeも無ければkeyそのもの
-            else:
-                key = f"mode={mode}:{key}" # modeがあれば追加
+        if tag is not None:
+            key = f"{key}:tag={tag}" # modeがあれば追加
+        else:
+            key = f"{key}"
         return key
             
                 
-    def get(self, key, mode=None, tag=None, prefix=None, rawmode=False):
-        if rawmode is False:
-            key = self.arrangeKey(key, mode=mode, tag=tag, prefix=prefix)
-        val = self.db.get(key, tag=tag)
+    def get(self, key, tag=None):
+        key = self.arrangeKey(key, tag=tag)
+        val = self.db.get(key, tag=False)
         logger.debug(f"key={key}")
         logger.debug(f"val={val}")
         return val
 
-    def listKeys(self, regexp=".*", mode=None, tag=None, prefix=None):
+    def listKeys(self, regexp=".*", tag=None):
         key = regexp.replace("[", "\\[")
         key = key.replace("]", "\\]")
         """
@@ -173,7 +124,7 @@ class Cache():
             regexp: (Optional) The key that matches regexp is returned.
         """
         iter = self.db.iterkeys(reverse=False)
-        key = self.arrangeKey(key, mode=mode, tag=tag, prefix=prefix)
+        key = self.arrangeKey(key, tag=tag)
         
         substring = f"{key}"
 
@@ -195,22 +146,22 @@ class Cache():
         logger.debug(f"total number of items = {count}")
         return hit_keys
 
-    def listKeysVals(self, regexp = ".*", mode=None, tag=None, prefix=None):
+    def listKeysVals(self, regexp = ".*", tag=None):
         """
         Return list of keys as an array.
         Args:
             regexp: (Optional) The key that matches regexp is returned.
         """
-        keyList = self.listKeys(regexp, mode=mode, tag=tag, prefix=prefix)
-        keyValList = [(key, self.get(key, rawmode=True)) for key in keyList]
+        keyList = self.listKeys(regexp, tag=tag)
+        keyValList = [(key, self.get(key)) for key in keyList]
         return keyValList
         
-    def deleteCache(self, regexp = None, mode=None, tag=None, prefix=None):
+    def deleteCache(self, regexp = None, tag=None):
         """
         return: Counter indicating the number of deleted items
         """
         
-        keys = self.listKeys(regexp, mode=mode, tag=tag, prefix=prefix)
+        keys = self.listKeys(regexp, tag=tag)
 
         count = 0
         logger.info(f"delete target keys[0:5]={keys[0:5]}")

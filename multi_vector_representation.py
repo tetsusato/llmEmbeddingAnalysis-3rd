@@ -1,6 +1,12 @@
 from logging import config
 import numpy as np
 import polars as pl
+import logging
+config.fileConfig("logging.conf", disable_existing_loggers = False)
+
+logger = logging.getLogger(__name__)
+
+
 class MultiVectorRepresentation:
     """
         入力されたベクトルを，そのベクトルより低い次元のベクトルの集合に変換する
@@ -10,6 +16,9 @@ class MultiVectorRepresentation:
                  n: int = 1, # samplingで使う．takensでは自動決定なので使わない
                  dimension: int = 3, # この研究では3次元
                  ):
+        logger.debug(f"embedding_dim={embedding_dim}")
+        logger.debug(f"n={n}")
+        logger.debug(f"dimension={dimension}")
         self.dimension = dimension
         self.n = n
         self.select_indexes = [np.random.choice(embedding_dim,
@@ -25,6 +34,7 @@ class MultiVectorRepresentation:
         return:
             [self.n, dimension]
         """
+        #print(f"src={src}, select_indexes={self.select_indexes}, n={self.n}")
         ret = [[src[i] for i in self.select_indexes[j]] for j in range(self.n)]
         return ret
         
@@ -37,13 +47,16 @@ class MultiVectorRepresentation:
         """
         args:
             embeddings: pl.dataframe [サンプル数, 埋め込みベクトル(1次元)]
-            n: int サンプリングして作るベクトルの数
             time_delay: int Not used in this method
             stride: int Not used in this method
+
+            以下はselfから取得
+            n: int サンプリングして作るベクトルの数
         return:
             np.ndarray: [サンプル数, n, dimension]
         """
         # polars [sample_num, self.emb_dim] to numpy
+        #print(f"embeddings={embeddings}")
         npvec = embeddings.to_numpy(structured = False)
         #print(npvec)
         # [入力サンプル数, 埋め込みベクトルの次元]

@@ -5,6 +5,8 @@ import numpy as np
 from logging import config
 from reduce_vectors_test import ReduceVectors, MultiVectorRepresentation
 import plotly.graph_objects as go
+import hydra
+from hydra import compose, initialize
 
 import logging
 config.fileConfig("logging.conf", disable_existing_loggers = False)
@@ -14,13 +16,18 @@ logger = logging.getLogger(__name__)
 class TestReduceVectors(unittest.TestCase):
     num_rows = 100 # number of embedding vectors
     emb_dim = 384 # dimension of the each embedding vector
+    with initialize(version_base=None, config_path="../conf", job_name=__file__):
+        cfg = compose(config_name="config.yaml",
+                      overrides=["+io=qwen2", "cache.enable=False"],
+                      return_hydra_config=True)
 
     def test_init(self):
         mvr = MultiVectorRepresentation(embedding_dim=4,
                                         n=2,
                                         dimension=3)        
 
-        rv = ReduceVectors(time_delay=1,
+        rv = ReduceVectors(self.cfg,
+                           time_delay=1,
                            stride=1,
                            emb_dim = 4)
         rv.set_reduce_func(getattr(mvr, "reduce_vector_takensembedding"))
@@ -30,7 +37,8 @@ class TestReduceVectors(unittest.TestCase):
         mvr = MultiVectorRepresentation(embedding_dim=4,
                                         n=2,
                                         dimension=3)        
-        rv = ReduceVectors(time_delay=1,
+        rv = ReduceVectors(self.cfg,
+                           time_delay=1,
                            stride=1,
                            emb_dim = 4)
         rv.set_reduce_func(getattr(mvr, "reduce_vector_takensembedding"))
@@ -165,7 +173,8 @@ class TestReduceVectors(unittest.TestCase):
                                         n=2,
                                         dimension=3)        
         
-        rv = ReduceVectors(time_delay=1,
+        rv = ReduceVectors(self.cfg,
+                           time_delay=1,
                            stride=1,
                            emb_dim = 4,
                            )
@@ -195,7 +204,8 @@ class TestReduceVectors(unittest.TestCase):
                                         n=2,
                                         dimension=3)        
         
-        rv = ReduceVectors(time_delay=1,
+        rv = ReduceVectors(self.cfg,
+                           time_delay=1,
                            stride=1,
                            emb_dim = 4,
                            )
@@ -221,7 +231,8 @@ class TestReduceVectors(unittest.TestCase):
                                         n=2,
                                         dimension=3)        
         
-        rv = ReduceVectors(time_delay=1,
+        rv = ReduceVectors(self.cfg,
+                           time_delay=1,
                            stride=1,
                            emb_dim = 4,
                            )
@@ -253,15 +264,16 @@ class TestReduceVectors(unittest.TestCase):
                                         n=2,
                                         dimension=3)        
 
-        rv = ReduceVectors(time_delay=1,
+        rv = ReduceVectors(self.cfg,
+                           time_delay=1,
                            stride=1,
                            emb_dim = 4)
         rv.set_reduce_func(getattr(mvr, "reduce_vector_takensembedding"))
         emb = pl.DataFrame({
-                "embedding1": [[1.0, 2.0, 3.0, 4.0],
-                              [1.1, 2.1, 3.1, 4.1]],
-                "embedding2": [[1.0, 2.0, 1.0, 2.0],
-                               [1.1, 2.1, 1.1, 2.1]],
+                "embedding1": [[1.0, 2.1, 3.0, 1.9, 1.0, 2.0, 3.0],
+                              [1.1, 2.2, 3.1, 2.1, 1.2, 2.1, 3.1]],
+                "embedding2": [[1.0, 2.0, 1.0, 2.0, 3.0],
+                               [1.1, 2.1, 1.1, 2.1, 3.1]],
                 "label": [2.3, 2.4]
             }
             )
@@ -275,14 +287,25 @@ class TestReduceVectors(unittest.TestCase):
                                         stride=rv.stride,
                                         )
 
-        pd = rv.embedding_to_pd(reduced_vec, sample_idx=[0], labels=labels)
-        print("pd", pd)
+        bdlist = rv.embedding_to_pd(reduced_vec,
+                                sample_idx=[0],
+                                labels=labels,
+                                cache_enable = False
+                               )
+        bd1 = [[1.0125    , 1.11850587],
+                  [0.8075    , 1.1553327 ]]
+        bd2 = [[0.755    , 0.755    ],
+                 [0.905   , 1.000641],
+                 [0.75     , 1.0369242]]
+        np.testing.assert_array_almost_equal(bd1, bdlist[0])
+        np.testing.assert_array_almost_equal(bd2, bdlist[1])
     def test_embedding_to_tsne(self):
         mvr = MultiVectorRepresentation(embedding_dim=4,
                                         n=2,
                                         dimension=3)        
         
-        rv = ReduceVectors(time_delay=1,
+        rv = ReduceVectors(self.cfg,
+                           time_delay=1,
                            stride=1,
                            emb_dim = 4)
         rv.set_reduce_func(getattr(mvr, "reduce_vector_takensembedding"))
@@ -309,7 +332,8 @@ class TestReduceVectors(unittest.TestCase):
                                         n=2,
                                         dimension=3)        
         
-        rv = ReduceVectors(time_delay=1,
+        rv = ReduceVectors(self.cfg,
+                           time_delay=1,
                            stride=1,
                            emb_dim = 4)
         rv.set_reduce_func(getattr(mvr, "reduce_vector_takensembedding"))

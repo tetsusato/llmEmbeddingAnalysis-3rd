@@ -26,6 +26,7 @@ dependencies = [
     "optuna>=3.6.1",
     "mysqlclient>=2.2.4",
     "pipdeptree>=2.23.1",
+    "jupyterlab>=4.2.4",
 ]
 readme = "README.md"
 requires-python = ">= 3.8"

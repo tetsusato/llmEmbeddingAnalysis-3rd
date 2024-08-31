@@ -1,0 +1,10 @@
+# io group
+model_dir: model_outputs/sentence-transformers
+input_filename: ${io.model_dir}/embedding-data.parquet
+random_vectors_filename: "random-vectors.parquet"
+language_model: "sentence-transformers/all-MiniLM-L6-v2"
+revision: 8b3219a92973c328a8e22fadcfa821b5dc75636a
+embedding_vector_dimension: 384
+input_model: ["glue", "stsb"]
+
+

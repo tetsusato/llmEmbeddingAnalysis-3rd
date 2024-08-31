@@ -2,6 +2,8 @@ import unittest
 from cache.cache import Cache
 from dataclasses import dataclass
 import torch
+from hydra import compose, initialize
+
 from logging import config
 import logging
 config.fileConfig("logging.conf", disable_existing_loggers = False)
@@ -22,16 +24,20 @@ class vec2d:
 
 
 class TestCacheModule(unittest.TestCase):
+    with initialize(version_base=None, config_path="../../conf", job_name=__file__):
+        cfg = compose(config_name="config.yaml", overrides=["+io=qwen2"], return_hydra_config=True)
+    
     vec = vec2d("vec2d example")
     filename = "test"
     #cache = Cache(vec, filename)
-    cache = Cache(filename)
+    cache = Cache(cfg, filename)
     cache.deleteCache(".*")
 
     def test_init(self):
         self.assertEqual(self.cache.__class__.__name__, "Cache")
 
     def test_insert(self):
+        self.cache.deleteCache(".*")
         vec1 = vec2d("example1")
         self.cache.set("item1", vec1)
         vec2 = vec2d("example2")
@@ -41,17 +47,18 @@ class TestCacheModule(unittest.TestCase):
         val = self.cache.get("item2")
         self.assertEqual(val, vec2d("example2"))
         list = self.cache.listKeys(".*")
-        self.assertEqual(list[0], "defaultCache:item1")
-        self.assertEqual(list[1], "defaultCache:item2")
+        print(f"list={list}")
+        self.assertEqual(list[0], "item1")
+        self.assertEqual(list[1], "item2")
         list = self.cache.listKeysVals(".*")
-        self.assertEqual(list[0][0], "defaultCache:item1")
+        self.assertEqual(list[0][0], "item1")
         self.assertEqual(list[0][1], vec2d("example1"))
-        self.assertEqual(list[1][0], "defaultCache:item2")
+        self.assertEqual(list[1][0], "item2")
         self.assertEqual(list[1][1], vec2d("example2"))
 
     def test_insert_with_prefix(self):
         
-        cache = Cache("prefix_insert_test", prefix="test")
+        cache = Cache(self.cfg, "prefix_insert_test", prefix="test")
         cache.deleteCache
         # access time prefixing
         vec1 = vec2d("example1")
@@ -59,74 +66,54 @@ class TestCacheModule(unittest.TestCase):
         vec2 = vec2d("example2")
         cache.set("item2", vec2)
         vec3 = vec2d("example3")
-        cache.set("item1", vec3, prefix = "special")
-        vec4 = vec2d("example4")
-        cache.set("item4emb", vec4, mode="emb")
+        cache.set("item3", vec3, tag = "special")
         list = cache.listKeys(".*")
         logger.info(f"list={list}")
-        self.assertEqual(list[0], "test:item1")
-        self.assertEqual(list[1], "test:item2")
-        self.assertEqual(list[2], f"test:mode=emb:item4emb") 
+        self.assertEqual(list[0], "item1")
+        self.assertEqual(list[1], "item2")
+        self.assertEqual(list[2], f"item3:tag=special") 
 
         self.assertEqual(cache.get("item1"), vec1)
         self.assertEqual(cache.get("item2"), vec2)
-        self.assertEqual(cache.get("item1", prefix="special"), vec3)
-        self.assertEqual(cache.get("item4emb", mode="emb"), vec4)
-
-        # construntor prefixing
-        cache = Cache("prefix_insert_test_2", prefix="very special")
-        vec1 = vec2d("example1")
-        cache.set("item1", vec1)
-        vec2 = vec2d("example2")
-        cache.set("item2", vec2)
-        vec3 = vec2d("example3")
-        cache.set("item1", vec3, prefix="special") # overwrite
-        list = cache.listKeys(".*")
-        logger.info(f"list={list}")
-        self.assertEqual(list[0], "very special:item1")
-        self.assertEqual(list[1], "very special:item2")
+        self.assertEqual(cache.get("item3", tag="special"), (vec3, "special"))
 
         # key includes tensor
         key0 = torch.tensor([1, 2])
         vec4 = vec2d("example4")
         print(key0)
         #key = cache.arrangeKey(key0, mode="emb")
-        cache.set(key0, vec4, mode="emb")
+        cache.set(key0, vec4)
 
         list = cache.listKeys(".*")
         logger.info(f"list={list}")
-        self.assertEqual(list[0], "very special:item1")
-        self.assertEqual(list[1], "very special:item2")
+        self.assertEqual(list[0], "item1")
+        self.assertEqual(list[1], "item2")
         print(list[2])
         print(list[2].__class__)
         print(isinstance(list[2], str))                
 
     def test_arrangeKey(self):
-        cache = Cache("test") # デフォルトprefixが無いケース
+        cache = Cache(self.cfg, "test") # デフォルトprefixが無いケース
         key0 = "item"
         key = cache.arrangeKey(key0)
-        self.assertEqual(key, f"defaultCache:{key0}") # 何の指定も無ければdefaultCacheがつく
-        key = cache.arrangeKey(key0, mode="emb")
-        self.assertEqual(key, f"defaultCache:mode=emb:{key0}") # modeがあれば追加
-        key = cache.arrangeKey(key0, prefix="dev")
-        self.assertEqual(key, f"dev:{key0}") # prefixがあれば追加
-        key = cache.arrangeKey(key0, mode="emb", prefix="dev")
-        self.assertEqual(key, f"dev:mode=emb:{key0}") # modeとprefixがあれば追加
-        cache = Cache("test", prefix="stage") # デフォルトprefixがあるケース
-        key = cache.arrangeKey(key0)
-        self.assertEqual(key, f"stage:{key0}") # 何の指定も無ければdefaultがつく
-        key = cache.arrangeKey(key0, mode="emb")
-        self.assertEqual(key, f"stage:mode=emb:{key0}") # 何の指定も無ければdefaultがつく
-        key = cache.arrangeKey(key0, prefix="dev")
-        self.assertEqual(key, f"dev:{key0}") # prefix指定は上書き
-        key = cache.arrangeKey(key0, mode="emb", prefix="dev")
-        self.assertEqual(key, f"dev:mode=emb:{key0}") # prefixで上書きされてmodeもつくケース
+        self.assertEqual(key, f"{key0}") # 何の指定も無ければそのまま
+        key = cache.arrangeKey(key0, tag="test")
+        self.assertEqual(key, f"{key0}:tag=test") # tagがあればこうなる
 
-        key0 = torch.tensor([1, 2])
-        print(key0)
-        key = cache.arrangeKey(key0, mode="emb")
-        print(key)
-        print(key.__class__)
+    def test_get(self):
+        cache = Cache(self.cfg, "test") # デフォルトprefixが無いケース
+        key0 = "item"
+        key1 = cache.arrangeKey(key0)
+        val = vec2d("example")
+        self.assertEqual(key1, f"{key0}") # 何の指定も無ければそのまま
+        key2 = cache.arrangeKey(key0, tag="test")
+        self.assertEqual(key2, f"{key0}:tag=test") # tagがあればこうなる
+        cache.set(key1, val)
+        val1 = cache.get(key1)
+        val2 = cache.get("item_none")
+        self.assertEqual(val1, val)
+        self.assertEqual(val2, None)
+
         
         
 if __name__ == '__main__':
