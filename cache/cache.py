@@ -91,8 +91,8 @@ class Cache():
         key = self.arrangeKey(key, tag=tag)
                 
         #key = f"{self.key_prefix}:{key}"
-        logger.debug(f"key={key}")
-        logger.debug(f"val={val}")
+        #logger.debug(f"key={key}")
+        #logger.debug(f"val={val}")
         #self.db[key] = val
         self.db.set(key, val, tag=tag)
         #self.db.sync()
@@ -111,8 +111,8 @@ class Cache():
     def get(self, key, tag=None):
         key = self.arrangeKey(key, tag=tag)
         val = self.db.get(key, tag=False)
-        logger.debug(f"key={key}")
-        logger.debug(f"val={val}")
+        #logger.debug(f"key={key}")
+        #logger.debug(f"val={val}")
         return val
 
     def listKeys(self, regexp=".*", tag=None):

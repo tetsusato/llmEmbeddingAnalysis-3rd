@@ -1,6 +1,8 @@
 defaults:
     #- io: sentence-transformers
-    - io: mpnet
+    #- io: mpnet
+    #- io: qwen2
+    - io: mistral
 
 # global configuration
 hydra:
@@ -27,10 +29,13 @@ execute:
     data_reset: True # Optunaのクリア
     debug:
         enable: True
-        start_index: 10
-        num_inputs: 1
+        start_index: 0
+        num_inputs: 5
     multiprocessing_pools: 10
-    n_trials: 20
+    n_trials: 50
+    max_num_inputs: 5
+    max_start_index: 95
+    start_index_step: 1
 
 hyper_parameter:
     tda:
@@ -38,10 +43,11 @@ hyper_parameter:
         time_delay_high: 50
         time_delay_step: 5
         stride_low: 1
-        stride_high: 20
+        stride_high: 5
         stride_step: 1
-        n_low: 5
+        n_low: 10
         n_high: 20
+        n_step: 5
         dth: 1
         #embedding_methods: ["reduce_vector_sampling"]
         embedding_methods: ["reduce_vector_takensembedding"]

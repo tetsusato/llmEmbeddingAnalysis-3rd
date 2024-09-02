@@ -1,6 +1,9 @@
 import unittest
 from dataclasses import dataclass
 import polars as pl
+import matplotlib
+matplotlib.rcParams['backend'] = "Agg"
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
 from logging import config
@@ -11,7 +14,8 @@ import homcloud.interface as hc
 from PersistenceDiagramWrapper import PersistenceDiagramWrapper
 from sklearn.manifold import TSNE
 from sklearn.decomposition import PCA
-from visualize_vectors import euclidean_distance, transform, plot
+#from visualize_vectors import euclidean_distance, transform, plot
+from visualize_vectors import euclidean_distance, transform
 import sys
 import optuna
 import torch
@@ -33,6 +37,8 @@ import time
 
 logger = logging.getLogger(__name__)
 progress = logging.getLogger("progress")
+results_logger = logging.getLogger("results")
+
 
 #print(f"logger={logger}")
 #print(f"progress={progress}")
@@ -129,61 +135,66 @@ class ReduceVectors():
 
 
     def get_pd(self,
-               fvecs: np.ndarray,
-               label: float,
+               fvecs_list: list[np.ndarray],
+               label_list: list[float],
                dth: int,
                n: int,
                cache_enable,
                gui,
                ) -> np.ndarray:
-        x = fvecs[:, 0]
-        y = fvecs[:, 1]
-        z = fvecs[:, 2]
-        if gui:
-            fig = go.Figure()
-            fig.add_trace(go.Scatter3d(x=x, y=y, z=z, mode='markers', name="dummy"))
-            fig.update_traces(marker_size = 1)
-            fig.update_layout(title = {"text":f"label={label}",
-                                       "x": 0.5,
-                                       "y": 0.72})
-            fig.show()
+        birth_death_list = []
+        for (fvecs, label) in zip(fvecs_list, label_list):
+            x = fvecs[:, 0]
+            y = fvecs[:, 1]
+            z = fvecs[:, 2]
+            """
+            if gui:
+                fig = go.Figure()
+                fig.add_trace(go.Scatter3d(x=x, y=y, z=z, mode='markers', name="dummy"))
+                fig.update_traces(marker_size = 1)
+                fig.update_layout(title = {"text":f"label={label}",
+                                           "x": 0.5,
+                                           "y": 0.72})
+                fig.show()
 
-
-        filename = f"pointcloud.pdgm"
-        ns = time.time_ns()
-        id = ns - int(ns / 1000)*1000
-        filename = f"pointcloud-{id}.pdgm"
-        import hashlib
-        fvecs_hash = hashlib.sha256(fvecs.tobytes()).hexdigest()
-        cache_key = f"{fvecs_hash}:{label}"
-        tag = "embedding_to_pd"
-        if cache_enable:
-            val = self.cache.get(cache_key, tag=tag)
-        else:
-            val = None
-        if val is None:
-            #pdlist = hc.PDList.from_alpha_filtration(fvecs, save_to=filename,
-            pdlist = hc.PDList.from_alpha_filtration(fvecs, save_to=None,
-                                              save_boundary_map=True)
-            #logger.debug(f"pdlist={pdlist.shape}")
-            #dth = self.cfg.hyper_parameter.tda.dth
-            pd = pdlist.dth_diagram(dth)
-            #logger.debug(f"pd={pd.shape}")
-            birth_death = np.array(pd.birth_death_times()).T
-            # y-xの大きさでソート
-            sorted_data = birth_death[np.argsort(birth_death[:, 1] - birth_death[:, 0])[::-1]]
-            # 大きい方から上位n個の要素を取得
-            birth_death = sorted_data[:n]
-            #logger.info(f"sorted pd=\n{pd}")
-            # xでソート
-            birth_death = birth_death[np.argsort(birth_death[:, 0])]
-            logger.debug(f"birth-death={birth_death.shape}")
-            logger.debug(f"set cache (key={cache_key}, tag={tag}, val={birth_death.shape})")
-        else:
-            birth_death = val
-        if cache_enable:
-            self.cache.set(cache_key, birth_death, tag=tag)
-        return birth_death
+            """
+            filename = f"pointcloud.pdgm"
+            ns = time.time_ns()
+            id = ns - int(ns / 1000)*1000
+            filename = f"pointcloud-{id}.pdgm"
+            import hashlib
+            fvecs_hash = hashlib.sha256(fvecs.tobytes()).hexdigest()
+            cache_key = f"{fvecs_hash}:{label}"
+            tag = "embedding_to_pd"
+            if cache_enable:
+                val = self.cache.get(cache_key, tag=tag)
+            else:
+                val = None
+            if val is None:
+                #pdlist = hc.PDList.from_alpha_filtration(fvecs, save_to=filename,
+                pdlist = hc.PDList.from_alpha_filtration(fvecs, save_to=None,
+                                                  save_boundary_map=True)
+                #logger.debug(f"pdlist={pdlist.shape}")
+                #dth = self.cfg.hyper_parameter.tda.dth
+                pd = pdlist.dth_diagram(dth)
+                #logger.debug(f"pd={pd.shape}")
+                birth_death = np.array(pd.birth_death_times()).T
+                # y-xの大きさでソート
+                sorted_data = birth_death[np.argsort(birth_death[:, 1] - birth_death[:, 0])[::-1]]
+                # 大きい方から上位n個の要素を取得
+                birth_death = sorted_data[:n]
+                #logger.info(f"sorted pd=\n{pd}")
+                # xでソート
+                birth_death = birth_death[np.argsort(birth_death[:, 0])]
+                #logger.debug(f"birth-death={birth_death.shape}")
+                #logger.debug(f"set cache (key={cache_key}, tag={tag}, val={birth_death.shape})")
+            else:
+                birth_death = val
+            if cache_enable:
+                self.cache.set(cache_key, birth_death, tag=tag)
+            birth_death_list.append(birth_death)
+        #return birth_death # [ターゲットによるベクトル数, 2]
+        return birth_death_list # 2次元のnumpyのリストのはず
         
     def embedding_to_pd(self,
                         embeddings: pl.dataframe,
@@ -204,13 +215,7 @@ class ReduceVectors():
              本実装では，embeddingsにembedding1とembedding2が縦にスタックされてくる
              labelsも縦にスタックされてくるように変更
         """
-        """
-        fveclist = self.reduce_func(embeddings,
-                                    time_delay=self.time_delay,
-                                    stride=self.stride,
-                                    )
-        print("fvec by gitto=", fveclist.__class__)
-        """
+        progress.info("***** embedding_to_pd *****")
         
         birth_death_list = []
         pdlist = []
@@ -222,23 +227,29 @@ class ReduceVectors():
         hashkey = hashlib.sha256(embeddings.tobytes()).hexdigest()
         if cache_enable:
             val = self.cache.get(hashkey)
+            """
             if val is not None:
                 progress.info(f"Cache is enable. val shape=({val[0].shape}, {val[1].shape})")
             else:
                 progress.info(f"Cache is enable. val={val}") # None
+            """
         if val is None:
             progress.info(f"Cache is not found. Calculation starts.")
-            argslist = []
+            num_pools = self.cfg.execute.multiprocessing_pools
+            #argslist = []
+            argslist = [[
+                           [], # fvecs
+                           [], # label
+                           self.cfg.hyper_parameter.tda.dth,
+                           n,
+                           cache_enable,
+                           gui,
+                       ]] * num_pools
             logger.debug(f"len zip(embeddings, labels)={len(list(zip(embeddings, labels)))}")
-            for (fvecs, label) in zip(embeddings, labels):
+            for (i, (fvecs, label)) in enumerate(zip(embeddings, labels)):
                 logger.debug(f"embedding for each sentence pair={fvecs.shape}({fvecs.__class__})")
-                argslist.append([fvecs,
-                                 label,
-                                 self.cfg.hyper_parameter.tda.dth,
-                                 n,
-                                 cache_enable,
-                                 gui,
-                                ])
+                argslist[i % num_pools][0].append(fvecs)
+                argslist[i % num_pools][1].append(label)
             logger.debug(f"len(argslist)={len(argslist)}")
             multiprocessing.set_start_method("spawn", force=True)
             with multiprocessing.Pool(self.cfg.execute.multiprocessing_pools) as pool:
@@ -247,21 +258,27 @@ class ReduceVectors():
                     birth_death = self.get_pd(*args)
                     birth_death_list.append(birth_death)
                 """
-                birth_death_list = pool.starmap(self.get_pd, argslist)
+                birth_death_list_list = pool.starmap(self.get_pd, argslist)
             pool.close()
-            logger.debug(f"len birth_death_list={len(birth_death_list)}")
+            # 2次元のnumpyのリストのリストのはず
+            logger.debug(f"len birth_death_list={len(birth_death_list_list)}")
+            birth_death_list = []
+            for a_birth_death_list in birth_death_list_list:
+                for birth_death in a_birth_death_list:
+                    birth_death_list.append(birth_death)
             # birth-deathは，PD毎にに数が異なるので，テンソルにはできない
             #logger.debug(f"np birth_death_list={np.array(birth_death_list)}")
+            """
             if cache_enable:
                 progress.info(f"Cache is enable. set key={hashkey}, val.shape=({birth_death_list[0].shape}, {birth_death_list[1].shape})")
                 self.cache.set(hashkey, birth_death_list)
+            """
         else:
             progress.info(f"Cache is accepted. val=({val[0].shape}, {val[1].shape})")
             birth_death_list = val
         logger.debug(f"birth-death shape list:")
         for bd in birth_death_list:
             logger.debug(f"birth-death shape={bd.shape}")
-        logger.debug("sorting...")
         
         return birth_death_list
 
@@ -348,6 +365,7 @@ class ReduceVectors():
         args:
             bd: [:, 2], 縦に2つのPDの2次元ベクトルがスタックされている想定
         """
+        progress.info("***** get_distance *****")
         logger.debug(f"birth-death 1 vector shape={bd1.shape}")
         logger.debug(f"birth-death 2 vector shape={bd2.shape}")
         pdobj1 = pdw.createPdObject(bd1)
@@ -375,6 +393,7 @@ class ReduceVectors():
             bd1: np.ndarray
             bd2: np.ndarray
         """
+        progress.info("***** proc_tda *****")
         # 基本データの準備
         #vecs = vecs[sample_idx]
         logger.debug(f"input embedding vectors={vecs.shape}(sentence1, embedding1, sentence2, embedding2, label)")
@@ -386,18 +405,6 @@ class ReduceVectors():
         labels = np.concatenate([labels, labels])
         logger.debug(f"labels to input embedding vectors={labels.shape}")
         # 高次元ベクトルを多数の低次元ベクトルに変換
-        """
-        reduced_vec1 = self.reduce_func(vec1,
-                                        time_delay=self.time_delay,
-                                        stride=self.stride,
-                                        )
-        logger.debug(f"reduced vec1={reduced_vec1.shape}")
-        reduced_vec2 = self.reduce_func(vec2,
-                                        time_delay=self.time_delay,
-                                        stride=self.stride,
-                                        )
-        logger.debug(f"reduced vec2={reduced_vec2.shape}")
-        """
         vec = vec1.rename({"embedding1": "embedding"}).vstack(
               vec2.rename({"embedding2": "embedding"}))
         logger.debug(f"vec: vec1+vec2={vec.shape}")
@@ -408,21 +415,6 @@ class ReduceVectors():
         logger.debug(f"reduced vec={reduced_vec.shape}")
         #logger.debug(f"reduced vec={reduced_vec[0]}")
         # 多数の低次元ベクトルをPDに変換
-        """
-        bdlist1 = self.embedding_to_pd(reduced_vec1,
-        #                               sample_idx=sample_idx,
-                                       labels=labels,
-                                       cache_enable = cache_enable
-                                      )
-        logger.debug(f"bdlist1={bdlist1}")
-        bdlist2 = self.embedding_to_pd(reduced_vec2,
-        #                               sample_idx=sample_idx,
-                                       labels=labels,
-                                       cache_enable = cache_enable
-                                      )
-        logger.debug(f"bdlist2={bdlist2}")
-        sample_num = len(bdlist1)
-        """
         bdlist = self.embedding_to_pd(reduced_vec,
                                       labels,
                                       n,
@@ -434,21 +426,12 @@ class ReduceVectors():
         ##fig.subplots_adjust(hspace=0.6, wspace=0.4)
         ##fig.suptitle(f"birth-death(delay={self.time_delay},stride={self.stride})")
 
+        #######################
         # PD同士の距離を計算する
+        #######################
         #distance = []
         pdw = PersistenceDiagramWrapper(self.cfg)
         argslist = []
-        """
-        for (i, (bd1, bd2, label)) in enumerate(zip(bdlist1, bdlist2, labels)):
-            logger.debug(f"bd1={bd1}")
-            logger.debug(f"bd2={bd2}")
-            argslist.append([pdw,
-                             bd1,
-                             bd2,
-                             label
-                            ]
-                           )
-        """
         logger.debug(f"stacked labels ={labels}")
         #logger.debug(f"zip={list(zip(bdlist, np.concatenate([labels, labels])))[:3]}")
         # bdlistにはセンテンス1と2が縦にスタックされているので，
@@ -558,25 +541,6 @@ class ReduceVectors():
         for (i, (v1, v2)) in enumerate(zip(tsnelist1, tsnelist2)):
             dis = np.linalg.norm(v1 - v2)
             distance.append(dis)
-            """
-            label = labels[i]
-            # 上下に同じデータのembedding1とembedding2に対応した結果をプロット
-            ax = fig.add_subplot(2, sample_num, i+1)
-            ax.set_title(f"{i}:{dis:.3f}({label:.2f})")
-            #ax.set_title(f"{i}:{sim:.3f}({label:.2f})")
-            #ax.scatter(x=v1[:, 0], y=v1[:, 1])
-            ax.scatter(x=[v1[0]], y=[v1[1]])
-            ax.set_xlim([xmin, xmax])
-            ax.set_ylim([ymin, ymax])
-            ax = fig.add_subplot(2, sample_num, i+1+sample_num)
-            #ax.set_title(f"{i}:{dis:.3f}({label:.2f})")
-            #ax.set_title(f"{i}:{sim:.3f}({label:.2f})")
-            #ax.scatter(x=v2[:, 0], y=v2[:, 1])
-            ax.scatter(x=[v2[0]], y=[v2[1]])
-            ax.set_xlim([xmin, xmax])
-            ax.set_ylim([ymin, ymax])
-            """
-        #fig.show()
         column_name = "dis"
         distance = pl.DataFrame(
                        distance,
@@ -732,19 +696,23 @@ def objective_tda(cfg: DictConfig,
                   vec: pl.DataFrame):
     def objective(trial: optuna.trial.Trial):
 
-
+        progress.info("***** objective *****")
         # ハイパーパラメータの準備
         #time_delay = trial.suggest_int("time_delay", 1, 16)
         time_delay = trial.suggest_int("time_delay",
                                        cfg.hyper_parameter.tda.time_delay_low,
-                                       cfg.hyper_parameter.tda.time_delay_high)
+                                       cfg.hyper_parameter.tda.time_delay_high,
+                                       step=cfg.hyper_parameter.tda.time_delay_step)
         #stride = trial.suggest_int("stride", 1, 16)
         stride = trial.suggest_int("stride",
                                    cfg.hyper_parameter.tda.stride_low,
-                                   cfg.hyper_parameter.tda.stride_high)
+                                   cfg.hyper_parameter.tda.stride_high,
+                                   step=cfg.hyper_parameter.tda.stride_step,
+                                   )
         n = trial.suggest_int("n",
                                    cfg.hyper_parameter.tda.n_low,
-                                   cfg.hyper_parameter.tda.n_high)
+                                   cfg.hyper_parameter.tda.n_high,
+                                   step=cfg.hyper_parameter.tda.n_step)
         number = trial.params
         #reduce_func_index = trial.suggest_int("reduce_func_index", 0, 1)
         """
@@ -756,7 +724,8 @@ def objective_tda(cfg: DictConfig,
                                                 cfg.hyper_parameter.tda.embedding_methods
                                                 )
         cache_enable = cfg.cache.enable
-        progress.info(f"delay={time_delay}, stride={stride}, reduce_func={reduce_func}")
+        progress.info(f"delay={time_delay}, stride={stride}," +
+                      f"reduce_func={reduce_func}, n={n}")
 
 
         
@@ -767,21 +736,6 @@ def objective_tda(cfg: DictConfig,
                            stride=stride,
                            cache=cache
                            )
-        #pv = PrepareVectors(cfg)
-        #vec = pv.getVectors()
-        """
-        filename = cfg.io.input_filename
-        progress.info(f"input filename = {filename}. Loading...")
-        vec = pl.read_parquet(filename)
-        logger.info(f"prepared vectors={vec.shape}")
-        if cfg.execute.debug.enable:
-            vec = vec[:cfg.execute.debug.num_inputs]
-            logger.info(f"debug mode. vectors={vec.shape}")
-        """
-        #embedding_example = vec["embedding1"].to_numpy()
-        #logger.info(f"emb1={embedding_example}")
-        #embedding_dimension = embedding_example.shape[1]
-        #sample_number = embedding_example.shape[0]
         embedding_dimension = cfg.io.embedding_vector_dimension
         mvr = MultiVectorRepresentation(embedding_dim=embedding_dimension,
                                             n=embedding_dimension - 3, # 適当
@@ -789,17 +743,33 @@ def objective_tda(cfg: DictConfig,
 
         rv.set_reduce_func(getattr(mvr, reduce_func))
         # vec = vec[sample_idx]
-        results, corr, pdlist1, pdlist2 = rv.proc_tda(vec,
-                                                      n,
-                                                      cache_enable = cache_enable
-                                                     )
-        #logger.info(f"results in objective_tda={results}")
-        #logger.info(f"corr in objective_tda={corr}")
-        pearson = corr.select("pearson").head().item()
-        spearman = corr.select("spearman").head().item()
-        #print(f"results_df={results_df}")
 
-        return pearson, spearman
+        num_inputs = cfg.execute.debug.num_inputs
+        max_num_inputs = cfg.execute.max_num_inputs
+
+        pearson_list = []
+        spearman_list = []
+        for i in range(0, max_num_inputs, num_inputs):
+            subvector = vec[i: i+num_inputs]
+            progress.info(f"execute start = {i}, end = {i+num_inputs}")
+            results, corr, pdlist1, pdlist2 = rv.proc_tda(subvector,
+                                                          n,
+                                                          cache_enable = cache_enable
+                                                         )
+            #logger.info(f"results in objective_tda={results}")
+            #logger.info(f"corr in objective_tda={corr}")
+            pearson = corr.select("pearson").head().item()
+            spearman = corr.select("spearman").head().item()
+            #print(f"results_df={results_df}")
+            pearson_list.append(pearson)
+            spearman_list.append(spearman)
+
+        logger.debug(f"pearson before averaging={pearson_list}")
+        logger.debug(f"spearman before averaging={spearman_list}")
+        average_pearson = sum(pearson_list) / len(pearson_list)
+        average_spearman = sum(spearman_list) / len(spearman_list)
+        #return pearson, spearman
+        return average_pearson, average_spearman
     return objective
 def objective_tsne(cfg: DictConfig,
                    cache: Cache,
@@ -813,10 +783,6 @@ def objective_tsne(cfg: DictConfig,
         reduce_func = trial.suggest_categorical("reduce_func",
                                                 cfg.hyper_parameter.tsne.embedding_methods
                                                 )
-        """
-                                        ["reduce_vector_sampling",
-                                         "reduce_vector_takensembedding"])
-        """
         cache_enable = cfg.cache.enable
         progress.info(f"perplexity={perplexity}, reduce_func={reduce_func}")
 
@@ -824,20 +790,7 @@ def objective_tsne(cfg: DictConfig,
                            time_delay=1,
                            stride=1,
                            )
-        #                  reduce_func_index=reduce_func_index)
-        #                  reduce_func=getattr(mvr, reduce_func))    
-
         # PrepareVectorsは事前に呼ばれていて，ファイル保存されている前提
-        #pv = PrepareVectors("original")
-        #vec = pv.getVectors(num_rows)
-        """
-        filename = cfg.io.input_filename
-        progress.info(f"input filename = {filename}. Loading...")
-        vec = pl.read_parquet(filename)
-        if cfg.execute.debug.enable:
-            vec = vec[:cfg.execute.debug.num_inputs]
-            logger.info(f"debug mode. vectors={vec.shape}")
-        """
         embedding_dimension = cfg.io.embedding_vector_dimension
         mvr = MultiVectorRepresentation(embedding_dim=embedding_dimension,
                                             n=embedding_dimension - 3, # 適当
@@ -845,13 +798,27 @@ def objective_tsne(cfg: DictConfig,
 
         rv.set_reduce_func(getattr(mvr, reduce_func))
         # vec = vec[sample_idx]
-        results, corr, tsne_vecs = rv.proc_tsne(vec,
-                                                perplexity)
-        pearson = corr.select("pearson").head().item()
-        spearman = corr.select("spearman").head().item()
+        num_inputs = cfg.execute.debug.num_inputs
+        max_num_inputs = cfg.execute.max_num_inputs
 
+        pearson_list = []
+        spearman_list = []
+        for i in range(0, max_num_inputs, num_inputs):
+            subvector = vec[i: i+num_inputs]
+            progress.info(f"execute [{i}: {i+num_inputs}]")
+            results, corr, tsne_vecs = rv.proc_tsne(subvector,
+                                                    perplexity)
+            pearson = corr.select("pearson").head().item()
+            spearman = corr.select("spearman").head().item()
+            pearson_list.append(pearson)
+            spearman_list.append(spearman)
 
-        return pearson, spearman    
+        average_pearson = sum(pearson_list) / len(pearson_list)
+        average_spearman = sum(spearman_list) / len(spearman_list)
+        logger.debug(f"pearson before averaging={pearson_list}")
+        logger.debug(f"spearman before averaging={spearman_list}")
+        #return pearson, spearman
+        return average_pearson, average_spearman
     return objective
 
 mode_list = [
@@ -878,6 +845,49 @@ mode_list = [
 
 
 if __name__ == "__main__":
+
+    def results_output(
+                       corr_index, # values_0 or values 1
+                       mode,
+                       lang_model,
+                       max_num_inputs,
+                       index,
+                       results,
+                       ):
+        if mode.name == "tda":
+            results_logger.info(f"Results, mode, model, num_inputs, start_index," +
+                                f"stride, time_delay, reduce_func, n")
+            results_corr = results[corr_index].head(1).item()
+            results_stride = results['params_stride'].head(1).item()
+            results_time_delay = results['params_time_delay'].head(1).item()
+            results_reduce_func = results['params_reduce_func'].head(1).item()
+            results_n = results['params_n'].head(1).item()
+            results_logger.info(f"{corr_index}, {results_corr}, {mode.name}, {lang_model}," +
+                                f"{max_num_inputs}," +
+                                f"{index}, {results_stride}, {results_time_delay}, " +
+                                f"{results_reduce_func}, {results_n}")
+        elif mode.name == "tsne":
+            results_logger.info(f"Results, mode, model, num_inputs, start_index," +
+                                f"perplexity, reduce_func")
+            results_corr = results[corr_index].head(1).item()
+            results_perplexity = results['params_perplexity'].head(1).item()
+            results_reduce_func = results['params_reduce_func'].head(1).item()
+            results_logger.info(f"{corr_index}, {results_corr}, {mode.name}, {lang_model}, " +
+                                f"{max_num_inputs}," +
+                                f"{index}, {results_perplexity}, " +
+                                f"{results_reduce_func}")
+
+        progress.info(f"Trial Results({study_name})")
+        progress.info("結果発表!(values_0優先)")
+        progress.info(results.sort_values("values_0"))
+        progress.info("結果発表!(values_1優先)")
+        progress.info(results.sort_values("values_1"))
+        progress.info("BEST!")
+        progress.info(study.best_trials)
+            
+            
+
+    results_logger.info(f"START")
     config.fileConfig("logging.conf", disable_existing_loggers = False)
 
 
@@ -904,61 +914,79 @@ if __name__ == "__main__":
     #"""
     #for mode in ["TDA", "TSNE"]:
     for mode in mode_list:
-        study_name = f"{mode.name}-{lang_model}"
-        storage_name = f"sqlite:///{study_name}.db"
-        #storage_name = f"mysql://{mysql_user}:{mysql_pass}@localhost/optuna"
-        storage_name = f"mysql://{mysql_user}:{mysql_pass}@127.0.0.1/optuna"
-        if cfg.execute.data_reset:
-            study_summaries = optuna.study.get_all_study_summaries(storage=storage_name)
-            logger.debug(f"study_summaries={study_summaries}")
-            study_exists = any(study.study_name == study_name for study in study_summaries)
-            if study_exists:
-                progress.debug(f"Clear study history.")
-                optuna.delete_study(
-                    study_name=study_name,
-                    storage=storage_name,
-                    )
-        study = optuna.create_study(
-            study_name=study_name,
-            storage=storage_name,
-            directions=["minimize", "minimize"],
-            load_if_exists=True)
-        progress.info(f"study={study}")
-        #study.optimize(mode.proc(cfg), n_trials=1, n_jobs=-1)
-        #study.optimize(mode.proc(cfg))
-        cache = Cache(cfg,
-                      f"ReduceVectors-{study_name}",
-                      reset = cfg.cache.reset
-                      )
-        filename = cfg.io.input_filename
-        progress.info(f"input filename = {filename}. Loading...")
-        vec = pl.read_parquet(filename)
-        logger.info(f"prepared vectors={vec.shape}")
-        if cfg.execute.debug.enable:
-            vec = vec[cfg.execute.debug.start_index:cfg.execute.debug.start_index+cfg.execute.debug.num_inputs]
-            logger.info(f"debug mode. vectors={vec.shape}")
-        
-        study.optimize(mode.proc(cfg,
-                                 cache,
-                                 vec),
-                       n_trials=cfg.execute.n_trials,
-                       n_jobs=1)
-        logger.debug(f"dataframe={study.trials_dataframe()}")
-        trial_with_higher_score = study.trials_dataframe().sort_values(
-                                            ["values_0", "values_1"]).head(10)
-        results = trial_with_higher_score[mode.hyper_params]
-        progress.info("結果発表!(value_0優先)")
-        progress.info(results)
-        progress.info("BEST!")
-        progress.info(study.best_trials)
-        trial_with_higher_score = study.trials_dataframe().sort_values(
-                                            ["values_1", "values_0"]).head(10)
-        results = trial_with_higher_score[mode.hyper_params]
-        progress.info("結果発表!(value_1優先)")
-        progress.info(results)
-        progress.info("BEST!")
-        progress.info(study.best_trials)
+        start_index = cfg.execute.debug.start_index
+        start_max = cfg.execute.max_start_index
+        start_step = cfg.execute.start_index_step
+        for index in range(start_index, start_max + 1, start_step):
+            study_name = f"{mode.name}-{lang_model}-{cfg.execute.debug.num_inputs}-{index}"
+            storage_name = f"sqlite:///{study_name}.db"
+            #storage_name = f"mysql://{mysql_user}:{mysql_pass}@localhost/optuna"
+            storage_name = f"mysql://{mysql_user}:{mysql_pass}@127.0.0.1/optuna"
+            if cfg.execute.data_reset:
+                study_summaries = optuna.study.get_all_study_summaries(storage=storage_name)
+                logger.debug(f"study_summaries={study_summaries}")
+                study_exists = any(study.study_name == study_name for study in study_summaries)
+                if study_exists:
+                    progress.debug(f"Clear study history.")
+                    optuna.delete_study(
+                        study_name=study_name,
+                        storage=storage_name,
+                        )
+            study = optuna.create_study(
+                study_name=study_name,
+                storage=storage_name,
+                directions=["minimize", "minimize"],
+                load_if_exists=True)
+            progress.info(f"study={study}")
+            #study.optimize(mode.proc(cfg), n_trials=1, n_jobs=-1)
+            #study.optimize(mode.proc(cfg))
+            cache = Cache(cfg,
+                          f"ReduceVectors-{study_name}",
+                          reset = cfg.cache.reset
+                          )
+            filename = cfg.io.input_filename
+            progress.info(f"input filename = {filename}. Loading...")
+            vec = pl.read_parquet(filename)
+            progress.info(f"prepared vectors={vec.shape}")
+            progress.info(f"max_num_inputs={cfg.execute.max_num_inputs}")
+            max_num_inputs = cfg.execute.max_num_inputs
+            vec = vec[index:index + max_num_inputs]
+            progress.info(f"target vectors={vec.shape} with start_index={index}")
+            """
+            if cfg.execute.debug.enable:
+                vec = vec[cfg.execute.debug.start_index:cfg.execute.debug.start_index+cfg.execute.debug.num_inputs]
+                logger.info(f"debug mode. vectors={vec.shape}")
+            """
+            study.optimize(mode.proc(cfg,
+                                     cache,
+                                     vec),
+                           n_trials=cfg.execute.n_trials,
+                           n_jobs=5)
+            logger.debug(f"dataframe={study.trials_dataframe()}")
+            trial_with_higher_score = study.trials_dataframe().sort_values(
+                                                ["values_0", "values_1"]).head(10)
+            results = trial_with_higher_score[mode.hyper_params]
 
+            results_output("values_0",
+                           mode,
+                           lang_model,
+                           max_num_inputs,
+                           index,
+                           results,
+                           )
+            results_output("values_1",
+                           mode,
+                           lang_model,
+                           max_num_inputs,
+                           index,
+                           results,
+                           )
+
+
+            progress.info("BEST!")
+            progress.info(study.best_trials)
+            
+    results_logger.info(f"END")
     """
     # 必要なケースを可視化
     for mode in mode_list:

@@ -1,0 +1,8 @@
+# io group
+model_dir: model_outputs/misteral
+input_filename: ${io.model_dir}/embedding-data.parquet
+random_vectors_filename: "random-vectors.parquet"
+language_model: "Salesforce/SFR-Embedding-Mistral"
+revision: "938c560d1c236aa563b2dbdf084f28ab28bccb11"
+embedding_vector_dimension: 4096
+input_model: ["glue", "stsb"]
