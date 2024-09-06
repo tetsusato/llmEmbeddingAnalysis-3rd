@@ -1,0 +1,57 @@
+defaults:
+    #- io: sentence-transformers
+    #- io: mpnet
+    #- io: qwen2
+    - io: mistral
+
+# global configuration
+hydra:
+    run:
+#        dir: ./outputs/${hydra.job.name}/${now:%Y-%m-%d_%H-%M}
+        dir: /home/tetsu_sato/llmEmbeddingAnalysis-3rd/outputs/tese
+    runtime:
+        output_dir: /home/tetsu_sato/llmEmbeddingAnalysis-3rd/outputs-dir
+    job:
+        chdir: True
+
+cache:
+    enable: True
+    reset: True
+    top_dir: "CacheStorage"
+    root: "defaultCache"
+    pd:
+        prefix: "PersistenceDiagram"
+        filename: "pd_test01"
+
+# 実験全体のパラメータを書く
+execute:
+    model_list: ["qwen2", "sentence-transformers"]
+    data_reset: True # Optunaのクリア
+    debug:
+        enable: True
+        start_index: 0
+        num_inputs: 5
+    multiprocessing_pools: 10
+    n_trials: 50
+    max_num_inputs: 5
+    max_start_index: 95
+    start_index_step: 1
+
+hyper_parameter:
+    tda:
+        time_delay_low: 1
+        time_delay_high: 50
+        time_delay_step: 5
+        stride_low: 1
+        stride_high: 5
+        stride_step: 1
+        n_low: 10
+        n_high: 20
+        n_step: 5
+        dth: 1
+        #embedding_methods: ["reduce_vector_sampling"]
+        embedding_methods: ["reduce_vector_takensembedding"]
+    tsne:
+        perplexity_low: 1
+        perplexity_high: 5
+        embedding_methods: ["reduce_vector_takensembedding"]

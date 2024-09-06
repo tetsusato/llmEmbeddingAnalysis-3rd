@@ -6,18 +6,18 @@ def parse_log_line(line):
     # A) と B) のメッセージを区別するための正規表現
     pattern_a = re.compile(
         r'^.+ -> Results, mode, model, num_inputs, start_index,stride, time_delay, reduce_func, n\n'
-        r'.+ -> ([\w_\d]+), ([\d\.\-]+), (\w+), (\w+), (\d+),(\d+), (\d+), (\d+), ([\w_]+), (\d+)'
+        r'.+ -> ([\w_\d]+), ([\d\.\-]+), (\w+),\s*([\w\-]+),\s*(\d+),(\d+), (\d+), (\d+), ([\w_]+), (\d+)'
         #r'^(.+) -> (.*)'
         #r'(.+) -> (.*)'
     )
     pattern_b = re.compile(
         r'^.+ -> Results, mode, model, num_inputs, start_index,perplexity, reduce_func\n'
-        r'.+ -> ([\w_\d]+), ([\d\.\-]+), (\w+), (\w+), (\d+),(\d+), (\d+), ([\w_]+)'
+        r'.+ -> ([\w_\d]+), ([\d\.\-]+), (\w+), ([\w\-]+), (\d+),(\d+), (\d+), ([\w_]+)'
     )
     #print(pattern_a)
-    #print(line)
+    print(line)
     match_a = pattern_a.match(line)
-    #print(match_a)
+    print(match_a)
     #if match_a:
     #    print(match_a.groups())
     match_b = pattern_b.match(line)
@@ -70,7 +70,9 @@ def parse_log_file(log_file_path):
     return resultsA, resultsB
 
 # 使用例
-log_file_path = './results_fit2024.log'
+#log_file_path = './results_fit2024_mistral.log'
+#log_file_path = './results_fit2024_mistral_long.log'
+log_file_path = './results_fit2024_sbert.log'
 parsed_resultsA, parsed_resultsB = parse_log_file(log_file_path)
 print(parsed_resultsA)
 print(parsed_resultsB)
@@ -98,3 +100,22 @@ aveB = resultsB_pl.group_by("corr_index").agg([
     ])
 
 print(aveB)
+
+countA_stride = resultsA_pl.group_by("corr_index").agg([
+        pl.col("stride").value_counts().alias("stride_counts")
+    ])
+countA_timedelay = resultsA_pl.group_by("corr_index").agg([
+        pl.col("time_delay").value_counts().alias("timedelay_counts")
+    ])
+
+print(countA_stride)
+print(countA_stride.select(pl.col("corr_index"), pl.col("stride_counts")))
+for sc in countA_stride["stride_counts"]:
+    sorted_sc = sorted(sc.to_list(), key=lambda x: x["count"], reverse=True)
+    print(sorted_sc)
+for sc in countA_timedelay["timedelay_counts"]:
+    sorted_sc = sorted(sc.to_list(), key=lambda x: x["count"], reverse=True)
+    print(sorted_sc)
+
+for type in countA_stride.select(pl.col("corr_index")).to_series():
+    print(type)
