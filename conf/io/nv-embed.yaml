@@ -1,0 +1,8 @@
+# io group
+model_dir: model_outputs/nv-embed
+input_filename: ${io.model_dir}/embedding-data.parquet
+random_vectors_filename: "random-vectors.parquet"
+language_model: "nvidia/NV-Embed-v2"
+revision: "06afec77ee57c1aa73d3cf688d42f3592f45214b"
+embedding_vector_dimension: 4096
+input_model: ["glue", "stsb"]

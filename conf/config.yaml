@@ -1,8 +1,9 @@
 defaults:
-    - io: sentence-transformers
+    #- io: sentence-transformers
     #- io: mpnet
     #- io: qwen2
     #- io: mistral
+    - io: nv-embed
 
 # global configuration
 hydra:

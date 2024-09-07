@@ -5,7 +5,8 @@ import pandas as pd
 import numpy as np
 import random
 from datasets import load_dataset
-from sentence_transformers import SentenceTransformer, models
+#from sentence_transformers import SentenceTransformer, models
+from langchain_huggingface.embeddings import HuggingFaceEmbeddings
 import polars as pl
 import argparse
 import hydra
@@ -67,9 +68,17 @@ class PrepareVectors():
         self.random_output = self.random_vectors_filename
         if model_load:
             progress.info(f"Model({self.language_model}) loading...")
-            self.model = SentenceTransformer(self.language_model,
-                                             revision=self.revision   )
+            
+            #self.model = SentenceTransformer(self.language_model,
+            #                                 revision=self.revision   )
             #self.model = SentenceTransformer("Alibaba-NLP/gte-Qwen2-7B-instruct")
+            self.model = HuggingFaceEmbeddings(
+                              model_name=self.language_model,
+                              multi_process = True,
+                              show_progress = True,
+                              #trust_remote_code=True,
+                              model_kwargs = {"trust_remote_code": True}
+                              )
             logger.info(f"model={self.model}")
         
         logger.debug(f"train example={self.train_dataset[0]}")
@@ -138,19 +147,25 @@ class PrepareVectors():
             sentence1 = self.train_dataset[0:num]['sentence1']
             sentence2 = self.train_dataset[0:num]['sentence2']
             label = self.train_dataset[0:num]['label']
+            """ # SentenceTransformer Version
             pool = self.model.start_multi_process_pool()
             embedding1 = self.model.encode_multi_process(sentence1,
                                                              pool)
             embedding2 = self.model.encode_multi_process(sentence2,
                                                              pool)
             self.model.stop_multi_process_pool(pool)
+            """
+            embedding1 = self.model.embed_documents(sentence1)
+            embedding2 = self.model.embed_documents(sentence2)
             embsize = len(embedding1[0])
             df = pl.DataFrame(
                     {
                         "sentence1": sentence1,
-                        "embedding1": embedding1.tolist(),
+                        #"embedding1": embedding1.tolist(),
+                        "embedding1": embedding1,
                         "sentence2": sentence2,
-                        "embedding2": embedding2.tolist(),
+                        #"embedding2": embedding2.tolist(),
+                        "embedding2": embedding2,
                         "label": label
                     },
                     schema=
