@@ -1,0 +1,8 @@
+# io group
+model_dir: model_outputs/llama3
+input_filename: ${io.model_dir}/embedding-data.parquet
+random_vectors_filename: "random-vectors.parquet"
+language_model: "meta-llama/Meta-Llama-3-8B"
+revision: "62bd457b6fe961a42a631306577e622c83876cb6"
+embedding_vector_dimension: 4096
+input_model: ["glue", "stsb"]

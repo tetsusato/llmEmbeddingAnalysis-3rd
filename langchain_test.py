@@ -59,6 +59,8 @@ if __name__ == "__main__":
         model = SentenceTransformer(language_model,
                                      revision=revision,
                                     trust_remote_code=True,
+                                    tokenizer_kwargs={'pad_token': '[PAD]'},
+                                    use_auth_token="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"
                                     )
         logger.info(f"model={model}")
         progress.info(f"Prepare vectors with multi processing")
@@ -97,13 +99,15 @@ if __name__ == "__main__":
     if langchain:
     # langchain version
         progress.info("LangChain START")
-        from langchain_huggingface.embeddings import HuggingFaceEmbeddings
+        from langchain_huggingface import HuggingFaceEmbeddings
         model_kwargs = {"device": "gpu"}
         model = HuggingFaceEmbeddings(
             model_name=language_model,
             multi_process = True,
             show_progress = True,
         #    trust_remote_code=True,
+            model_kwargs={'token': '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',
+                          'tokenizer_kwargs': {'pad_token': '[PAD]'}},
         )
         sentence1 = train_dataset[0:num]['sentence1']
         sentence2 = train_dataset[0:num]['sentence2']
