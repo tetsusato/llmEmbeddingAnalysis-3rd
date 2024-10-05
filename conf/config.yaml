@@ -1,9 +1,16 @@
+#label: "llama3-JSIAM2024"
+#label: "sentence-transformers-JSIAM2024"
+label: "mistral-JSIAM2024"
+
 defaults:
     #- io: sentence-transformers
     #- io: mpnet
     #- io: qwen2
-    #- io: mistral
-    - io: nv-embed
+    - io: mistral
+    #- io: nv-embed
+    #- io: llama3
+    #- io: llama3-70B
+    #- io: reflection-llama-31-70B
 
 # global configuration
 hydra:
@@ -26,27 +33,45 @@ cache:
 
 # 実験全体のパラメータを書く
 execute:
-    model_list: ["qwen2", "sentence-transformers"]
+    model_list: ["qwen2", "sentence-transformers", "mistral", "nv-embed", "llama3"]
     data_reset: True # Optunaのクリア
     debug:
         enable: True
-        start_index: 0
-        num_inputs: 5
-    multiprocessing_pools: 10
+        # 全埋め込みベクトルのうち，どこから使うか
+        # obsolete
+        #start_index: 0
+        # 相関係数を計算するのに何個のベクトルを使うか
+        # obslete
+        #num_inputs: 5
+    # 全データのうち，どこから実験に使うか
+    start_index: 0
+    # 全データのうち，いくつを実験に使うか
+    limit: 100
+    # 一つの相関係数計算に，何個のベクトルを使うか
+    group_num: 5
+    multiprocessing_pools: 20
+    # optunaのトライアル数
     n_trials: 50
-    max_num_inputs: 5
-    max_start_index: 95
-    start_index_step: 1
+    # 全埋め込みベクトルのうち，start_index以降何個使うか
+    # obsolete
+    #max_num_inputs: 5
+    # ハイパーパラメータ最適化の際，どこまでstart_indexをずらすか
+    # obsolete
+    #max_start_index: 95
+    #max_start_index: 3
+    # ハイパーパラメータ最適化の際のステップ幅
+    # 通常は? group_numに等しい
+    start_index_step: 5
 
 hyper_parameter:
     tda:
         time_delay_low: 1
-        time_delay_high: 50
-        time_delay_step: 5
+        time_delay_high: 60
+        time_delay_step: 2
         stride_low: 1
         stride_high: 5
         stride_step: 1
-        n_low: 10
+        n_low: 20
         n_high: 20
         n_step: 5
         dth: 1

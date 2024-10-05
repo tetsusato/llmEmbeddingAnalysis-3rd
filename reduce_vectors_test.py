@@ -1,5 +1,6 @@
 import unittest
 from dataclasses import dataclass
+import pandas as pd
 import polars as pl
 import matplotlib
 matplotlib.rcParams['backend'] = "Agg"
@@ -744,14 +745,28 @@ def objective_tda(cfg: DictConfig,
         rv.set_reduce_func(getattr(mvr, reduce_func))
         # vec = vec[sample_idx]
 
-        num_inputs = cfg.execute.debug.num_inputs
-        max_num_inputs = cfg.execute.max_num_inputs
+        group_num = cfg.execute.group_num
+        limit = cfg.execute.limit
+        start_index_step = cfg.execute.start_index_step
 
         pearson_list = []
         spearman_list = []
-        for i in range(0, max_num_inputs, num_inputs):
-            subvector = vec[i: i+num_inputs]
-            progress.info(f"execute start = {i}, end = {i+num_inputs}")
+        # 戦略1
+        results, corr, pdlist1, pdlist2 = rv.proc_tda(vec,
+                                                      n,
+                                                      cache_enable = cache_enable
+                                                     )
+        #logger.info(f"results in objective_tda={results}")
+        #logger.info(f"corr in objective_tda={corr}")
+        pearson = corr.select("pearson").head().item()
+        spearman = corr.select("spearman").head().item()
+
+        return pearson, spearman
+        """
+         戦略2
+        for i in range(0, limit - group_num, start_index_step):
+            subvector = vec[i: i+group_num]
+            progress.info(f"execute start = {i}, end = {i+group_num}")
             results, corr, pdlist1, pdlist2 = rv.proc_tda(subvector,
                                                           n,
                                                           cache_enable = cache_enable
@@ -770,6 +785,7 @@ def objective_tda(cfg: DictConfig,
         average_spearman = sum(spearman_list) / len(spearman_list)
         #return pearson, spearman
         return average_pearson, average_spearman
+        """
     return objective
 def objective_tsne(cfg: DictConfig,
                    cache: Cache,
@@ -798,27 +814,39 @@ def objective_tsne(cfg: DictConfig,
 
         rv.set_reduce_func(getattr(mvr, reduce_func))
         # vec = vec[sample_idx]
-        num_inputs = cfg.execute.debug.num_inputs
-        max_num_inputs = cfg.execute.max_num_inputs
+        group_num = cfg.execute.group_num
+        limit = cfg.execute.limit
+        start_index_step = cfg.execute.start_index_step
 
         pearson_list = []
         spearman_list = []
-        for i in range(0, max_num_inputs, num_inputs):
-            subvector = vec[i: i+num_inputs]
-            progress.info(f"execute [{i}: {i+num_inputs}]")
+        #戦略1
+        results, corr, tsne_vecs = rv.proc_tsne(vec,
+                                                    perplexity)
+        pearson = corr.select("pearson").head().item()
+        spearman = corr.select("spearman").head().item()
+        return pearson, spearman
+        
+        #戦略2
+        """
+        #for i in range(0, group_num, num_inputs):
+        for i in range(0, limit-group_num+1, start_index_step):
+            subvector = vec[i: i+group_num]
+            progress.info(f"execute [{i}: {i+group_num}]")
             results, corr, tsne_vecs = rv.proc_tsne(subvector,
                                                     perplexity)
             pearson = corr.select("pearson").head().item()
             spearman = corr.select("spearman").head().item()
             pearson_list.append(pearson)
             spearman_list.append(spearman)
-
+        
         average_pearson = sum(pearson_list) / len(pearson_list)
         average_spearman = sum(spearman_list) / len(spearman_list)
         logger.debug(f"pearson before averaging={pearson_list}")
         logger.debug(f"spearman before averaging={spearman_list}")
         #return pearson, spearman
         return average_pearson, average_spearman
+        """
     return objective
 
 mode_list = [
@@ -850,32 +878,37 @@ if __name__ == "__main__":
                        corr_index, # values_0 or values 1
                        mode,
                        lang_model,
-                       max_num_inputs,
-                       index,
+                       group_num,
                        results,
                        ):
         if mode.name == "tda":
-            results_logger.info(f"Results, mode, model, num_inputs, start_index," +
-                                f"stride, time_delay, reduce_func, n")
+            results_logger.info(f"Results, corr_index, corr, mode, model," +
+                                f"group_num, stride, time_delay, reduce_func, n")
             results_corr = results[corr_index].head(1).item()
             results_stride = results['params_stride'].head(1).item()
             results_time_delay = results['params_time_delay'].head(1).item()
             results_reduce_func = results['params_reduce_func'].head(1).item()
             results_n = results['params_n'].head(1).item()
             results_logger.info(f"{corr_index}, {results_corr}, {mode.name}, {lang_model}," +
-                                f"{max_num_inputs}," +
-                                f"{index}, {results_stride}, {results_time_delay}, " +
+                                f"{group_num}," +
+                                f"{results_stride}, {results_time_delay}, " +
                                 f"{results_reduce_func}, {results_n}")
         elif mode.name == "tsne":
-            results_logger.info(f"Results, mode, model, num_inputs, start_index," +
+            results_logger.info(f"Results, corr_index, corr, mode, model, group_num," +
                                 f"perplexity, reduce_func")
             results_corr = results[corr_index].head(1).item()
             results_perplexity = results['params_perplexity'].head(1).item()
             results_reduce_func = results['params_reduce_func'].head(1).item()
             results_logger.info(f"{corr_index}, {results_corr}, {mode.name}, {lang_model}, " +
-                                f"{max_num_inputs}," +
-                                f"{index}, {results_perplexity}, " +
+                                f"{group_num}," +
+                                f"{results_perplexity}, " +
                                 f"{results_reduce_func}")
+
+        results_logger.info(f"Trial Results({study_name})")
+        results_logger.info("結果発表!(values_0優先)")
+        results_logger.info(results.sort_values("values_0"))
+        results_logger.info("結果発表!(values_1優先)")
+        results_logger.info(results.sort_values("values_1"))
 
         progress.info(f"Trial Results({study_name})")
         progress.info("結果発表!(values_0優先)")
@@ -902,6 +935,7 @@ if __name__ == "__main__":
     logger.info(f"cfg={OmegaConf.to_yaml(cfg)}")
 
     lang_model = cfg.hydra.runtime.choices.io
+    label = cfg.label
     
     mysql_user = os.environ["OPT_USER"]
     mysql_pass = os.environ["OPT_PASS"]
@@ -913,18 +947,39 @@ if __name__ == "__main__":
     sample_idx = [6, 3, 1, 4, 0]
     #"""
     #for mode in ["TDA", "TSNE"]:
+    best_score = pl.DataFrame(
+                schema = [
+                       ("mode", pl.String),
+                       ("values_0", pl.Float64),
+                       ("values_1", pl.Float64),
+                    ]
+                )
+    best_results_list = pl.DataFrame(
+                schema = [
+                       ("mode", pl.String),
+                       ("values_0", pl.Float64),
+                       ("values_1", pl.Float64),
+#                       ("params", pl.String),
+                    ]
+            )
     for mode in mode_list:
-        start_index = cfg.execute.debug.start_index
-        start_max = cfg.execute.max_start_index
-        start_step = cfg.execute.start_index_step
-        for index in range(start_index, start_max + 1, start_step):
-            study_name = f"{mode.name}-{lang_model}-{cfg.execute.debug.num_inputs}-{index}"
+        start_index = cfg.execute.start_index
+        start_index_step = cfg.execute.start_index_step
+        group_num = cfg.execute.group_num
+        limit = cfg.execute.limit
+
+        value0_list = []
+        value1_list = []
+        # 戦略1
+        for index in range(start_index, limit -group_num + 1, start_index_step):
+            #study_name = f"{label}-{mode.name}-{lang_model}-{limit}"
+            study_name = f"{label}-{mode.name}-{lang_model}-{index}-{limit}"
             storage_name = f"sqlite:///{study_name}.db"
             #storage_name = f"mysql://{mysql_user}:{mysql_pass}@localhost/optuna"
             storage_name = f"mysql://{mysql_user}:{mysql_pass}@127.0.0.1/optuna"
             if cfg.execute.data_reset:
                 study_summaries = optuna.study.get_all_study_summaries(storage=storage_name)
-                logger.debug(f"study_summaries={study_summaries}")
+                #logger.debug(f"study_summaries={study_summaries}")
                 study_exists = any(study.study_name == study_name for study in study_summaries)
                 if study_exists:
                     progress.debug(f"Clear study history.")
@@ -948,44 +1003,136 @@ if __name__ == "__main__":
             progress.info(f"input filename = {filename}. Loading...")
             vec = pl.read_parquet(filename)
             progress.info(f"prepared vectors={vec.shape}")
-            progress.info(f"max_num_inputs={cfg.execute.max_num_inputs}")
-            max_num_inputs = cfg.execute.max_num_inputs
-            vec = vec[index:index + max_num_inputs]
-            progress.info(f"target vectors={vec.shape} with start_index={index}")
-            """
-            if cfg.execute.debug.enable:
-                vec = vec[cfg.execute.debug.start_index:cfg.execute.debug.start_index+cfg.execute.debug.num_inputs]
-                logger.info(f"debug mode. vectors={vec.shape}")
-            """
+            progress.info(f"group_num={cfg.execute.group_num}")
+            group_num = cfg.execute.group_num
+            # 戦略1
+            vec = vec[index:index + group_num]
+            # 戦略2
+            #vec = vec[start_index:start_index + limit]
+            progress.info(f"target vectors={vec.shape} with start_index={start_index}")
+            # 戦略2
             study.optimize(mode.proc(cfg,
                                      cache,
                                      vec),
                            n_trials=cfg.execute.n_trials,
-                           n_jobs=5)
+                           n_jobs=10)
             logger.debug(f"dataframe={study.trials_dataframe()}")
             trial_with_higher_score = study.trials_dataframe().sort_values(
                                                 ["values_0", "values_1"]).head(10)
+            # resultsはpandas dataframe
             results = trial_with_higher_score[mode.hyper_params]
 
             results_output("values_0",
                            mode,
                            lang_model,
-                           max_num_inputs,
-                           index,
+                           group_num,
                            results,
                            )
             results_output("values_1",
                            mode,
                            lang_model,
-                           max_num_inputs,
-                           index,
+                           group_num,
                            results,
                            )
 
+            best_results_value0 = results.sort_values("values_0").head(1)
+            progress.info(f"best_results_value0={best_results_value0}")
+            best_results_value1 = results.sort_values("values_1").head(1)
+            progress.info(f"best_results_value1={best_results_value1}")
+            value0 = best_results_value0["values_0"].item()
+            value1 = best_results_value1["values_1"].item()
 
-            progress.info("BEST!")
-            progress.info(study.best_trials)
+            value0_list.append(value0)
+            value1_list.append(value1)
             
+        value0 = np.sum(value0_list)/len(value0_list)
+        value1 = np.sum(value1_list)/len(value1_list)
+
+        # この記録の部分はあとでやる
+
+        params_list = None
+        if mode.name == "tda":
+            params0 = pd.DataFrame([{
+                "mode": mode.name,
+                "values_0": value0,
+                "values_1": value1,
+#                "params": f"params_stride: {best_results_value0['params_stride'].item()}," +
+#                      f"params_time_delay: {best_results_value0['params_time_delay'].item()}" 
+                }])
+            progress.info(f"params0={params0}")
+            params1 = pd.DataFrame([{
+                "mode": mode.name,
+                "values_0": best_results_value1["values_0"].item(),
+                "values_1": best_results_value1["values_1"].item(),
+#                "params": f"params_stride: {best_results_value1['params_stride'].item()}," +
+#                      f"params_time_delay: {best_results_value1['params_time_delay'].item()}" 
+                }])
+
+            params_list = pd.concat([params0, params1])
+            progress.info(f"params_list = {params_list}")
+        elif mode.name == "tsne":
+            params0 = pd.DataFrame([{
+                "mode": mode.name,
+                "values_0": best_results_value0["values_0"].item(),
+                "values_1": best_results_value0["values_1"].item(),
+#                "params": f"perplexity: {best_results_value0['params_perplexity'].item()}"
+                }])
+
+            params1 = pd.DataFrame([{
+                "mode": mode.name,
+                "values_0": best_results_value1["values_0"].item(),
+                "values_1": best_results_value1["values_1"].item(),
+#                "params": f"perplexity: {best_results_value1['params_perplexity'].item()}"
+                }])
+
+            params_list = pd.concat([params0, params1])
+
+        progress.info(f"params_list={params_list}")
+
+        """
+        progress.info(f"params_list.to_list()={params_list.to_list()}")
+        progress.info(f"schema={dict(best_results_list.schema)}")
+        input_dict =                 {
+                                        "mode": mode.name,
+                                        "values_0": value0,
+                                        "values_1": value1,
+                                        "params": [params_list.to_list()]
+                                    }
+        progress.info(f"input_dict={input_dict}")
+        """
+
+        """
+        df =  pl.DataFrame(input_dict)
+            #                schema=dict(best_results_list.schema)
+            schema = [
+                   ("mode", pl.String),
+                   ("values_0", pl.Float64),
+                   ("values_1", pl.Float64),
+                   ("params", pl.List(pl.Float64)),
+                ]
+            )
+        """
+        #progress.info(f"new df={df}")
+        #progress.info(f"new df(polars)={pl.DataFrame(df)}")
+        best_results_list = best_results_list.vstack(pl.DataFrame(params_list))
+
+        progress.info("BEST!")
+        progress.info(study.best_trials)
+        progress.info(f"best value0={best_results_value0}")
+        progress.info(f"best value1={best_results_value1}")
+
+
+    results_logger.info(f"■■■■■最終結果■■■■■■")
+    results_logger.info(f"config:\n{cfg}")
+    pl.Config.set_fmt_str_lengths(60)
+    results_logger.info(f"results={best_results_list}")
+    average_resuls = best_results_list.group_by("mode").agg(pl.mean("values_0", "values_1"))
+
+    results_logger.info(f"best average={average_resuls}")
+    best_score = best_score.vstack(
+                                average_resuls
+                               )
+
     results_logger.info(f"END")
     """
     # 必要なケースを可視化

@@ -5,7 +5,7 @@ import pandas as pd
 import numpy as np
 import random
 from datasets import load_dataset
-#from sentence_transformers import SentenceTransformer, models
+from sentence_transformers import SentenceTransformer, models
 from langchain_huggingface.embeddings import HuggingFaceEmbeddings
 import polars as pl
 import argparse
@@ -13,6 +13,8 @@ import hydra
 from hydra import compose, initialize
 from omegaconf import DictConfig, OmegaConf
 import json
+import ollama
+from langchain_ollama import OllamaEmbeddings
 
 from logging import config
 import logging
@@ -72,13 +74,35 @@ class PrepareVectors():
             #self.model = SentenceTransformer(self.language_model,
             #                                 revision=self.revision   )
             #self.model = SentenceTransformer("Alibaba-NLP/gte-Qwen2-7B-instruct")
+            self.model_kwargs = {"trust_remote_code": True,
+                                 'model_kwargs': {"precision": "binary"},
+                                 'token': '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',
+                                 'tokenizer_kwargs': {'pad_token': '[PAD]'}
+                                }
+            self.tokenizer_kwargs = {'pad_token': '[PAD]'}
+            """
             self.model = HuggingFaceEmbeddings(
                               model_name=self.language_model,
                               multi_process = True,
                               show_progress = True,
                               #trust_remote_code=True,
-                              model_kwargs = {"trust_remote_code": True}
+                              model_kwargs = self.model_kwargs
                               )
+            """
+            """
+            self.model = SentenceTransformer(
+                self.language_model,
+                device = "cpu",
+                token = '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',
+                #local_files_only = True,
+                tokenizer_kwargs = {'pad_token': '[PAD]'}
+                )
+            """
+            self.model = OllamaEmbeddings(
+                    # model = self.language_model
+                    model = "reflection",
+                    show_progress = True
+                )
             logger.info(f"model={self.model}")
         
         logger.debug(f"train example={self.train_dataset[0]}")
@@ -113,17 +137,17 @@ class PrepareVectors():
         if not os.path.exists(output_dir):
             progress.info(f"Creating output directory({output_dir})")
             os.makedirs(output_dir)
-        if os.path.exists(self.output):
+        if cache_enable and os.path.exists(self.output):
             progress.info(f"File found")
             logger.info(f"getVectors' results has been detected. load from ({self.output})")
-            df = pl.read_parquet(self.output)
+            df = pl.read_parquet(self.output).limit(num)
             logger.info(f"read df={df}")
             return df
         if num == -1:
             num = self.numRows
         #if os.path.isfile(self.input_data_filename):
         #    retukaburn
-        if os.path.isfile(self.output):
+        if cache_enable and os.path.isfile(self.output):
             df = pl.read_parquet(self.output).limit(num)
             logger.debug(f"loaded: {df.count()} rows.")
             return df
@@ -145,7 +169,12 @@ class PrepareVectors():
         if enable_multi_processing:
             progress.info(f"Prepare vectors with multi processing")
             sentence1 = self.train_dataset[0:num]['sentence1']
+            progress.info(f"sentence1 class = {type(sentence1)}")
+            progress.info(f"sentence1 len ={len(sentence1)}")
+            #progress.info(f"sentence1 = {sentence1}")
             sentence2 = self.train_dataset[0:num]['sentence2']
+            progress.info(f"sentence2 len ={len(sentence2)}")
+            #progress.info(f"sentence2 = {sentence2}")
             label = self.train_dataset[0:num]['label']
             """ # SentenceTransformer Version
             pool = self.model.start_multi_process_pool()
@@ -155,9 +184,46 @@ class PrepareVectors():
                                                              pool)
             self.model.stop_multi_process_pool(pool)
             """
+            """ HuggingFaceEmbeddings version
             embedding1 = self.model.embed_documents(sentence1)
             embedding2 = self.model.embed_documents(sentence2)
-            embsize = len(embedding1[0])
+            #embedding1 = self.model.embed_query(sentence1)
+            #embedding2 = self.model.embed_query(sentence2)
+            """
+            """
+            client = SentenceTransformer(
+                self.language_model,
+                tokenizer_kwargs = self.tokenizer_kwargs
+                )
+            """
+            """
+            client = self.model
+            #chunk_size = 1
+            chunk_size = 40
+            pool = client.start_multi_process_pool(
+                             ["cuda:1", "cuda:2", "cuda:3"]
+                           )
+            embedding1 = client.encode_multi_process(sentence1,
+                                                             pool,
+                                                     precision = "binary",
+                                                     chunk_size = chunk_size)
+            client.stop_multi_process_pool(pool)
+            pool = client.start_multi_process_pool(
+                  ["cuda:1", "cuda:2", "cuda:3"]
+                 )
+            embedding2 = client.encode_multi_process(sentence2,
+                                                             pool,
+                                                     precision = "binary",
+                                                     chunk_size = chunk_size)
+            client.stop_multi_process_pool(pool)
+            """
+            #embeddings1 = self.model.embed_documents(sentence1)
+            embeddings1 = self.model.embed_documents(sentence1)
+            progress.info(f"embedding1[0]={embeddings1[0]}")
+            #progress.info(f"embedding1 shape={len(embeddings1)}")
+            embeddings2 = self.model.embed_documents(sentence2)
+            progress.info(f"embedding2[0]={embeddings2[0]}")
+            embsize = len(embeddings1[0])
             df = pl.DataFrame(
                     {
                         "sentence1": sentence1,
@@ -186,8 +252,10 @@ class PrepareVectors():
                 sentence1 = self.train_dataset[i]['sentence1']
                 sentence2 = self.train_dataset[i]['sentence2']
                 label = self.train_dataset[i]['label']
-                embedding1 = self.model.encode(sentence1)
-                embedding2 = self.model.encode(sentence2)
+                #embedding1 = self.model.encode(sentence1)
+                #embedding2 = self.model.encode(sentence2)
+                embedding1 = self.model.aembed_query(sentence1)
+                embedding2 = self.model.aembed_query(sentence2)
                 row = pl.DataFrame(
                         {
                             "sentence1": sentence1,
@@ -366,13 +434,10 @@ if __name__ == "__main__":
     vecs = PrepareVectors(cfg, model_load=True)
     # embeddings = vecs.getVectors(7, cache_enable=False)
     #embeddings = vecs.getVectors(1000, cache_enable=False, enable_multi_processing=True)
+    #embeddings = vecs.getVectors(-1, cache_enable=False, enable_multi_processing=True)
+    #for i in range(5):
+    #    embeddings = vecs.getVectors(40+i, cache_enable=False, enable_multi_processing=True)
+    # OK or NG
+    #embeddings = vecs.getVectors(40, cache_enable=False, enable_multi_processing=True)
     embeddings = vecs.getVectors(-1, cache_enable=False, enable_multi_processing=True)
     print("getVectors", embeddings)
-    sample_idx = [0, 6]
-    emb1 = embeddings.select("embedding1")[sample_idx].to_numpy()[:, 0]
-    emb2 = embeddings.select("embedding2")[sample_idx].to_numpy()[:, 0]
-    print("emb1 shape=", emb1.shape)
-    #print("emb1=", emb1)
-    dif = np.abs(emb1-emb2)
-    rel_tol = 1e-1
-    #idx = np.where(dif <= threshhold)[0]

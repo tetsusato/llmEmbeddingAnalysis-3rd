@@ -1,0 +1,8 @@
+# io group
+model_dir: model_outputs/reflection-llama31-70B
+input_filename: ${io.model_dir}/embedding-data.parquet
+random_vectors_filename: "random-vectors.parquet"
+language_model: "mattshumer/Reflection-Llama-3.1-70B"
+revision: "mattshumer/Reflection-Llama-3.1-70B"
+embedding_vector_dimension: 4096
+input_model: ["glue", "stsb"]
